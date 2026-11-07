@@ -19,7 +19,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 
 const loginSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
+  email: z.string().trim().min(3, 'Please enter a valid email or login identifier'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -160,9 +160,9 @@ export default function LoginPage() {
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
-                  type="email"
-                  autoComplete="email"
-                  placeholder={loginRole === 'RECEPTION' ? 'reception@accommodation.local' : 'admin@accommodation.local'}
+                  type="text"
+                  autoComplete="username"
+                  placeholder={loginRole === 'RECEPTION' ? 'reception@accommodation.local' : 'gurusthan.mmdk@arunachalam'}
                   suppressHydrationWarning
                   {...register('email')}
                   className={`block w-full pl-10 pr-3.5 py-2.5 text-sm text-slate-900 bg-slate-50 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition ${

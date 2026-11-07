@@ -8,7 +8,7 @@ import { getClientIp, recordFailedLogin, resetLoginAttempts } from '../middlewar
 import { ActionType, UserRole, UserStatus } from '@prisma/client';
 
 export const loginSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
+  email: z.string().trim().min(3, 'Please enter a valid email or login identifier'),
   password: z.string().min(1, 'Password is required'),
 });
 
