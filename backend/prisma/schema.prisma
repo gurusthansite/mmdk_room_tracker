@@ -1,0 +1,517 @@
+// Prisma Schema for Accommodation Management System
+// Canonical Source of Truth for Database Architecture (Hardened Version 2.1)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN
+  ALLOCATION_MANAGER
+  RECEPTION_STAFF
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum RoomStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum GenderPreference {
+  MALE
+  FEMALE
+  ANY
+  FAMILY
+  GUEST
+}
+
+enum UnitType {
+  BED
+  MAT
+}
+
+enum GenderCategory {
+  MALE
+  FEMALE
+  ANY
+}
+
+enum UnitStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  ALLOCATED
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNKNOWN
+}
+
+enum ParticipantStatus {
+  REGISTERED
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  NO_SHOW
+  CANCELLED
+}
+
+enum AllocationStatus {
+  TENTATIVE
+  CONFIRMED
+  CANCELLED
+  MODIFIED
+}
+
+enum AllocationItemStatus {
+  TENTATIVE
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum StayStatus {
+  CHECKED_IN
+  CHECKED_OUT
+  EXTENDED
+  EARLY_DEPARTURE
+  TRANSFERRED
+}
+
+enum MessageType {
+  WHATSAPP_ALLOCATION_TENTATIVE
+  WHATSAPP_RECEPTION_CONFIRMATION
+  SMS_NOTIFICATION
+}
+
+enum MessageStatus {
+  PREPARED
+  OPENED
+  STAFF_CONFIRMED_SENT
+  FAILED
+}
+
+enum AadhaarComplianceStatus {
+  COLLECTED
+  VERIFIED
+  EXEMPTED
+  DELETED
+}
+
+enum ActionType {
+  CREATE
+  UPDATE
+  DELETE
+  ALLOCATE
+  CONFIRM
+  CHECK_IN
+  CHECK_OUT
+  CANCEL
+  TRANSFER
+  STATUS_CHANGE
+}
+
+// ----------------------------------------------------------------------------
+// 1. SYSTEM HEALTH MODEL (Preserved from Phase 1)
+// ----------------------------------------------------------------------------
+
+model SystemCheck {
+  id        String   @id @default(uuid())
+  status    String   @default("HEALTHY")
+  checkedAt DateTime @default(now())
+
+  @@map("system_checks")
+}
+
+// ----------------------------------------------------------------------------
+// 2. ADMIN & STAFF USER MODEL
+// ----------------------------------------------------------------------------
+
+model AdminUser {
+  id                 String     @id @default(uuid())
+  email              String     @unique
+  passwordHash       String
+  name               String
+  role               UserRole   @default(RECEPTION_STAFF)
+  status             UserStatus @default(ACTIVE)
+  phone              String?
+  mustChangePassword Boolean    @default(false)
+  tokenVersion       Int        @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  // Relationships
+  allocationsCreated Allocation[]     @relation("AllocationCreatedBy")
+  aadhaarRecords     AadhaarRecord[]  @relation("AadhaarRecordedBy")
+  stayRecords        StayRecord[]     @relation("StayRecordedBy")
+  messagesSent       MessageLog[]     @relation("MessageSentBy")
+  activityLogs       ActivityLog[]    @relation("UserActivityLogs")
+
+  @@index([email])
+  @@index([role, status])
+  @@map("admin_users")
+}
+
+// ----------------------------------------------------------------------------
+// 2B. HOTEL MODEL (Independent Hotel & Property Inventory)
+// ----------------------------------------------------------------------------
+
+model Hotel {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  address      String?
+  contactPhone String?
+  contactEmail String?
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  rooms        Room[]
+
+  @@index([name])
+  @@map("hotels")
+}
+
+// ----------------------------------------------------------------------------
+// 3. ROOM MODEL
+// ----------------------------------------------------------------------------
+
+model Room {
+  id               String           @id @default(uuid())
+  roomNumber       String           @unique
+  hotelId          String?
+  building         String?
+  floor            Int?
+  totalBeds        Int              @default(0) // Synchronized with AccommodationUnit count
+  totalMats        Int              @default(0) // Synchronized with AccommodationUnit count
+  status           RoomStatus       @default(ACTIVE)
+  genderPreference GenderPreference @default(ANY)
+  notes            String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // Relationships
+  hotel            Hotel?           @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  units            AccommodationUnit[]
+
+  @@index([roomNumber])
+  @@index([hotelId])
+  @@index([building, floor])
+  @@index([status])
+  @@map("rooms")
+}
+
+// ----------------------------------------------------------------------------
+// 4. ACCOMMODATION UNIT MODEL (Individual Beds and Mats - Inventory Truth)
+// ----------------------------------------------------------------------------
+
+model AccommodationUnit {
+  id             String         @id @default(uuid())
+  unitNumber     String         // e.g. "B1", "B2", "M1"
+  roomId         String
+  type           UnitType       @default(BED)
+  genderCategory GenderCategory @default(ANY)
+  status         UnitStatus     @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relationships
+  room            Room             @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  allocationItems AllocationItem[]
+  stayRecords     StayRecord[]
+
+  @@unique([roomId, unitNumber])
+  @@index([roomId])
+  @@index([type, genderCategory, status])
+  @@map("accommodation_units")
+}
+
+// ----------------------------------------------------------------------------
+// 5. REGISTRATION MODEL
+// ----------------------------------------------------------------------------
+
+model Registration {
+  id               String             @id @default(uuid())
+  registrationId   String             @unique // Readable ID e.g. "REG-0001"
+  primaryName      String
+  mobile           String
+  email            String?
+  city             String?
+  state            String?
+  totalMembers     Int                @default(1)
+  registrationDate DateTime           @default(now())
+  status           RegistrationStatus @default(REGISTERED)
+  isArchived       Boolean            @default(false) // Soft deletion & archival safeguard
+  deletedAt        DateTime?          // Soft deletion timestamp
+  notes            String?            @db.Text
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  // Relationships - Restrict rules prevent destructive cascade deletes
+  participants Participant[]
+  allocations  Allocation[]
+  stayRecords  StayRecord[]
+  messageLogs  MessageLog[]
+
+  @@index([registrationId])
+  @@index([primaryName])
+  @@index([mobile])
+  @@index([status])
+  @@index([isArchived])
+  @@index([registrationDate])
+  @@map("registrations")
+}
+
+// ----------------------------------------------------------------------------
+// 6. PARTICIPANT MODEL (Actual Individuals at Reception)
+// ----------------------------------------------------------------------------
+
+model Participant {
+  id                String            @id @default(uuid())
+  registrationId    String
+  fullName          String
+  phone             String?           // Individual participant phone number
+  gender            Gender?           // Removed default MALE; unknown until reception records details
+  age               Int?
+  relationToPrimary String?           // e.g. "Self", "Spouse", "Son", "Father", "Colleague"
+  isPrimary         Boolean           @default(false)
+  checkInStatus     ParticipantStatus @default(REGISTERED)
+  isArchived        Boolean           @default(false)
+  deletedAt         DateTime?
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relationships
+  registration    Registration     @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  aadhaarRecord   AadhaarRecord?
+  stayRecords     StayRecord[]
+  allocationItems AllocationItem[] // Optional pre-assigned allocation items
+
+  @@index([registrationId])
+  @@index([fullName])
+  @@index([checkInStatus])
+  @@index([isArchived])
+  @@map("participants")
+}
+
+// ----------------------------------------------------------------------------
+// 7. ALLOCATION MODEL (Master Reservation Window for a Registration)
+// ----------------------------------------------------------------------------
+
+model Allocation {
+  id                 String           @id @default(uuid())
+  allocationNumber   String           @unique // e.g. "ALC-0001"
+  registrationId     String
+  status             AllocationStatus @default(TENTATIVE)
+  entryDate          DateTime
+  exitDate           DateTime
+  isArchived         Boolean          @default(false)
+  deletedAt          DateTime?
+  notes              String?          @db.Text
+  createdById        String
+  parentAllocationId String?          // For preserving allocation revision history
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  // Relationships
+  registration     Registration     @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  createdBy        AdminUser        @relation("AllocationCreatedBy", fields: [createdById], references: [id])
+  parentAllocation Allocation?      @relation("AllocationHistory", fields: [parentAllocationId], references: [id])
+  childAllocations Allocation[]     @relation("AllocationHistory")
+  items            AllocationItem[]
+
+  @@index([registrationId])
+  @@index([status])
+  @@index([entryDate, exitDate])
+  @@index([parentAllocationId])
+  @@index([isArchived])
+  @@map("allocations")
+}
+
+// ----------------------------------------------------------------------------
+// 8. ALLOCATION ITEM MODEL (Specific Bed/Mat reserved under an Allocation)
+// ----------------------------------------------------------------------------
+
+model AllocationItem {
+  id            String               @id @default(uuid())
+  allocationId  String
+  unitId        String
+  participantId String?              // Optional participant pre-assignment
+  entryDate     DateTime
+  exitDate      DateTime
+  status        AllocationItemStatus @default(TENTATIVE)
+  notes         String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  // Relationships
+  allocation  Allocation        @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  unit        AccommodationUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  participant Participant?      @relation(fields: [participantId], references: [id], onDelete: SetNull)
+  stayRecords StayRecord[]
+
+  // Composite indexes for conflict detection across date intervals
+  @@index([unitId, entryDate, exitDate, status])
+  @@index([allocationId])
+  @@index([participantId])
+  @@map("allocation_items")
+}
+
+// ----------------------------------------------------------------------------
+// 9. AADHAAR RECORD MODEL (Secure, Encrypted Application-Level Storage)
+// ----------------------------------------------------------------------------
+// COMPLIANCE & LEGAL NOTICE:
+// 1. Mandatory Aadhaar collection must only occur with statutory/event compliance authorization.
+// 2. Encrypted using AES-256-GCM. Plaintext Aadhaar is NEVER stored in database.
+// 3. UI only ever displays masked 'XXXX-XXXX-' + lastFourDigits.
+// 4. Zero UIDAI OTP / external verification integration.
+// 5. Configurable soft retention & deletion controls via deletedAt.
+// 6. Consent is explicitly opt-in: retentionConsent defaults to false.
+
+model AadhaarRecord {
+  id               String                  @id @default(uuid())
+  participantId    String                  @unique // 1-to-1 with Participant
+  encryptedAadhaar String                  // AES-256-GCM ciphertext
+  aadhaarIv        String                  // Initialization Vector (Hex)
+  aadhaarAuthTag   String                  // Authentication Tag (Hex)
+  lastFourDigits   String                  @db.VarChar(4) // Unencrypted for index & masked display
+  complianceStatus AadhaarComplianceStatus @default(COLLECTED)
+  retentionConsent Boolean                 @default(false) // Hardened: opt-in consent, no default true
+  recordedById     String
+  deletedAt        DateTime?               // For legal retention/deletion compliance
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  // Relationships
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  recordedBy  AdminUser   @relation("AadhaarRecordedBy", fields: [recordedById], references: [id])
+
+  @@index([lastFourDigits])
+  @@index([complianceStatus])
+  @@index([recordedById])
+  @@map("aadhaar_records")
+}
+
+// ----------------------------------------------------------------------------
+// 10. STAY RECORD MODEL (Actual Physical Occupancy & Checkout History)
+// ----------------------------------------------------------------------------
+
+model StayRecord {
+  id                   String      @id @default(uuid())
+  registrationId       String
+  participantId        String      // Concrete mapping to actual accommodated person
+  unitId               String      // Concrete mapping to physical unit (bed or mat)
+  allocationItemId     String?     // Optional link to underlying allocation item
+  actualCheckIn        DateTime    @default(now())
+  actualCheckOut       DateTime?
+  status               StayStatus  @default(CHECKED_IN)
+  previousStayRecordId String?     // Self-relation: preserves room transfer/reassignment history
+  transferReason       String?     // Reason for room/unit change
+  notes                String?
+  recordedById         String
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  // Relationships
+  registration           Registration       @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  participant            Participant        @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  unit                   AccommodationUnit  @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  allocationItem         AllocationItem?    @relation(fields: [allocationItemId], references: [id], onDelete: SetNull)
+  recordedBy             AdminUser          @relation("StayRecordedBy", fields: [recordedById], references: [id])
+  previousStayRecord     StayRecord?        @relation("StayTransfers", fields: [previousStayRecordId], references: [id])
+  subsequentStayRecords  StayRecord[]       @relation("StayTransfers")
+
+  @@index([registrationId])
+  @@index([participantId])
+  @@index([unitId])
+  @@index([allocationItemId])
+  @@index([status])
+  @@index([previousStayRecordId])
+  @@index([actualCheckIn, actualCheckOut])
+  @@map("stay_records")
+}
+
+// ----------------------------------------------------------------------------
+// 11. MESSAGE LOG MODEL (WhatsApp Click-to-Chat & Notification Tracking)
+// ----------------------------------------------------------------------------
+
+model MessageLog {
+  id              String        @id @default(uuid())
+  registrationId  String
+  recipientMobile String
+  messageType     MessageType   @default(WHATSAPP_ALLOCATION_TENTATIVE)
+  templateContent String        @db.Text
+  status          MessageStatus @default(PREPARED)
+  sentByUserId    String?
+  sentAt          DateTime?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relationships
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  sentByUser   AdminUser?   @relation("MessageSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  @@index([registrationId])
+  @@index([recipientMobile])
+  @@index([status])
+  @@index([messageType])
+  @@map("message_logs")
+}
+
+// ----------------------------------------------------------------------------
+// 12. ACTIVITY LOG MODEL (Immutable Audit Trail for System Actions)
+// ----------------------------------------------------------------------------
+
+model ActivityLog {
+  id         String     @id @default(uuid())
+  entityType String     // e.g. "ALLOCATION", "REGISTRATION", "ROOM", "RECEPTION"
+  entityId   String
+  action     ActionType
+  details    Json?      // JSON payload containing snapshot of changes
+  userId     String?
+  ipAddress  String?
+  createdAt  DateTime   @default(now())
+
+  // Relationships
+  user AdminUser? @relation("UserActivityLogs", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
