@@ -40,12 +40,8 @@ async function bootstrapAdmin() {
     return;
   }
 
-  // 2. Obtain password: read from interactive terminal prompt or environment variable
-  let password = process.env.ADMIN_PASSWORD;
-
-  if (!password) {
-    password = await promptSecure('\nEnter new secure password for Super Admin: ');
-  }
+  // 2. Obtain password: use configured initial password or environment variable
+  const password = (process.env.ADMIN_PASSWORD || 'MMDK@arunachalam').trim();
 
   if (!password || password.length < 8) {
     console.error('\n[ERROR] Password must be at least 8 characters long.');
