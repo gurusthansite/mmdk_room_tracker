@@ -3,6 +3,7 @@ import {
   listRooms, 
   getRoomById, 
   createRoom, 
+  createBulkRooms,
   updateRoom, 
   addUnitToRoom, 
   updateUnit, 
@@ -22,6 +23,12 @@ router.get('/', requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER, 
 router.get('/:id', requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER, UserRole.VIEWER]), getRoomById);
 
 // Create / Edit routes (Admin and Allocation Manager)
+router.post(
+  '/bulk',
+  requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]),
+  createBulkRooms
+);
+
 router.post(
   '/', 
   requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]), 

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma';
 import { encryptSensitiveData } from '../utils/encryption';
+import { parseRoomTokens } from '../utils/roomParser';
 import { 
   RoomStatus, 
   GenderPreference, 
@@ -36,6 +37,25 @@ export const createRoomSchema = z.object({
   maleMats: z.number().int().min(0).optional().default(0),
   femaleMats: z.number().int().min(0).optional().default(0),
   anyMats: z.number().int().min(0).optional().default(0),
+});
+
+export const bulkRoomGroupSchema = z.object({
+  roomNumbers: z.union([
+    z.array(z.string().trim().min(1)),
+    z.string().trim().min(1),
+  ]),
+  building: z.string().trim().optional().nullable(),
+  floor: z.number().int().optional().nullable(),
+  genderPreference: z.nativeEnum(GenderPreference).default(GenderPreference.MALE),
+  status: z.nativeEnum(RoomStatus).default(RoomStatus.ACTIVE),
+  notes: z.string().trim().optional().nullable(),
+  totalBeds: z.number().int().min(0).default(0),
+  totalMats: z.number().int().min(0).default(0),
+});
+
+export const createBulkRoomsSchema = z.object({
+  hotelId: z.string().uuid().optional().nullable(),
+  groups: z.array(bulkRoomGroupSchema).min(1, 'At least one room group is required'),
 });
 
 export const updateRoomSchema = z.object({
@@ -343,6 +363,12 @@ export async function createRoom(req: Request, res: Response) {
     anyMats,
   } = parsed.data;
 
+  // If multiple room numbers or ranges were provided (e.g. "21, 23, 24, 43" or "101-105"), delegate to createBulkRooms
+  const tokens = parseRoomTokens(roomNumber);
+  if (tokens.length > 1) {
+    return createBulkRooms(req, res);
+  }
+
   // Check unique roomNumber
   const existing = await prisma.room.findUnique({
     where: { roomNumber },
@@ -451,6 +477,242 @@ export async function createRoom(req: Request, res: Response) {
     message: `Room ${finalizedRoom.roomNumber} created with ${finalizedRoom.units.length} units.`,
     data: finalizedRoom,
   });
+}
+
+/**
+ * Bulk Create Rooms with auto-provisioned beds and mats.
+ * Supports multiple rooms at a time (e.g. "21, 23, 24, 43" or ranges like "101-105"),
+ * as well as multiple groups with different bed/mat configurations.
+ */
+export async function createBulkRooms(req: Request, res: Response) {
+  try {
+    let payload = req.body;
+
+    // Normalization: allow top-level roomNumbers / roomNumber shorthand
+    if (!payload.groups && (payload.roomNumbers || payload.roomNumber)) {
+      payload = {
+        hotelId: payload.hotelId || null,
+        groups: [
+          {
+            roomNumbers: payload.roomNumbers || payload.roomNumber,
+            building: payload.building || null,
+            floor: payload.floor !== undefined ? Number(payload.floor) : null,
+            genderPreference: payload.genderPreference || GenderPreference.MALE,
+            status: payload.status || RoomStatus.ACTIVE,
+            notes: payload.notes || null,
+            totalBeds: Number(payload.totalBeds) || 0,
+            totalMats: Number(payload.totalMats) || 0,
+          },
+        ],
+      };
+    }
+
+    const parsed = createBulkRoomsSchema.safeParse(payload);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: parsed.error.errors.map((e) => ({
+          path: e.path.join('.'),
+          message: e.message,
+        })),
+      });
+    }
+
+    const { hotelId, groups } = parsed.data;
+
+    // Verify hotel if specified
+    if (hotelId) {
+      const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } });
+      if (!hotel) {
+        return res.status(404).json({
+          success: false,
+          message: 'Specified hotel facility was not found.',
+        });
+      }
+    }
+
+    interface ResolvedRoomItem {
+      roomNumber: string;
+      hotelId: string | null;
+      building: string | null;
+      floor: number | null;
+      genderPreference: GenderPreference;
+      status: RoomStatus;
+      notes: string | null;
+      totalBeds: number;
+      totalMats: number;
+    }
+
+    const itemsToCreate: ResolvedRoomItem[] = [];
+    const allRoomNumbers: string[] = [];
+    const seenInRequest = new Set<string>();
+
+    for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+      const g = groups[gIdx];
+      const tokens = Array.isArray(g.roomNumbers)
+        ? g.roomNumbers.flatMap((t) => parseRoomTokens(t))
+        : parseRoomTokens(g.roomNumbers);
+
+      if (tokens.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Group #${gIdx + 1} has no valid room numbers specified.`,
+        });
+      }
+
+      for (const tok of tokens) {
+        const trimmed = tok.trim();
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        if (seenInRequest.has(key)) {
+          return res.status(400).json({
+            success: false,
+            message: `Duplicate room number '${trimmed}' specified in request.`,
+          });
+        }
+        seenInRequest.add(key);
+        allRoomNumbers.push(trimmed);
+
+        itemsToCreate.push({
+          roomNumber: trimmed,
+          hotelId: hotelId || null,
+          building: g.building || null,
+          floor: g.floor !== undefined ? g.floor : null,
+          genderPreference: g.genderPreference,
+          status: g.status,
+          notes: g.notes || null,
+          totalBeds: g.totalBeds,
+          totalMats: g.totalMats,
+        });
+      }
+    }
+
+    if (itemsToCreate.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No room numbers provided.',
+      });
+    }
+
+    // Check database for existing rooms
+    const existingRooms = await prisma.room.findMany({
+      where: { roomNumber: { in: allRoomNumbers } },
+      select: { roomNumber: true },
+    });
+
+    if (existingRooms.length > 0) {
+      const dupes = existingRooms.map((r) => r.roomNumber).join(', ');
+      return res.status(409).json({
+        success: false,
+        message: `The following room number(s) already exist: ${dupes}. Please remove or change them.`,
+      });
+    }
+
+    // Transactionally create all rooms and units
+    const result = await prisma.$transaction(async (tx) => {
+      const createdRooms: any[] = [];
+      let totalUnitsCount = 0;
+
+      for (const item of itemsToCreate) {
+        const room = await tx.room.create({
+          data: {
+            roomNumber: item.roomNumber,
+            hotelId: item.hotelId,
+            building: item.building,
+            floor: item.floor,
+            genderPreference: item.genderPreference,
+            status: item.status,
+            notes: item.notes,
+            totalBeds: 0,
+            totalMats: 0,
+          },
+        });
+
+        const unitGender =
+          item.genderPreference === GenderPreference.MALE
+            ? GenderCategory.MALE
+            : item.genderPreference === GenderPreference.FEMALE
+            ? GenderCategory.FEMALE
+            : GenderCategory.ANY;
+
+        // Auto-generate Beds: B1, B2...
+        for (let b = 1; b <= item.totalBeds; b++) {
+          await tx.accommodationUnit.create({
+            data: {
+              roomId: room.id,
+              unitNumber: `B${b}`,
+              type: UnitType.BED,
+              genderCategory: unitGender,
+              status: UnitStatus.ACTIVE,
+            },
+          });
+          totalUnitsCount++;
+        }
+
+        // Auto-generate Floor Mats: M1, M2...
+        for (let m = 1; m <= item.totalMats; m++) {
+          await tx.accommodationUnit.create({
+            data: {
+              roomId: room.id,
+              unitNumber: `M${m}`,
+              type: UnitType.MAT,
+              genderCategory: unitGender,
+              status: UnitStatus.ACTIVE,
+            },
+          });
+          totalUnitsCount++;
+        }
+
+        await tx.room.update({
+          where: { id: room.id },
+          data: {
+            totalBeds: item.totalBeds,
+            totalMats: item.totalMats,
+          },
+        });
+
+        if (req.user) {
+          await tx.activityLog.create({
+            data: {
+              entityType: 'ROOM',
+              entityId: room.id,
+              action: ActionType.CREATE,
+              details: {
+                roomNumber: item.roomNumber,
+                hotelId: item.hotelId,
+                building: item.building,
+                beds: item.totalBeds,
+                mats: item.totalMats,
+                bulkBatch: true,
+              },
+              userId: req.user.id,
+            },
+          });
+        }
+
+        createdRooms.push(room);
+      }
+
+      return { createdRooms, totalUnitsCount };
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `Successfully created ${result.createdRooms.length} rooms with ${result.totalUnitsCount} total inventory units.`,
+      data: {
+        createdCount: result.createdRooms.length,
+        totalUnits: result.totalUnitsCount,
+        rooms: result.createdRooms,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error in createBulkRooms:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to create bulk rooms',
+    });
+  }
 }
 
 /**

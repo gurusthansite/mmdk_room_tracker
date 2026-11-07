@@ -46,9 +46,70 @@ import {
   UnitStatus,
   HotelListItem,
   CreateHotelInput,
-  UpdateHotelInput
+  UpdateHotelInput,
+  CreateBulkRoomsInput,
+  BulkRoomGroupInput
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+
+interface RoomGroupForm {
+  id: string;
+  roomNumbersText: string;
+  building: string;
+  floor: number;
+  genderPreference: GenderPreference;
+  status: RoomStatus;
+  notes: string;
+  totalBeds: number;
+  totalMats: number;
+}
+
+function parseRoomTokens(input: string): string[] {
+  if (!input || !input.trim()) return [];
+  const rawParts = input.split(/[\n,;]+/).map((p) => p.trim()).filter(Boolean);
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const part of rawParts) {
+    const rangeMatch = part.match(/^([A-Za-z_-]*)(\d+)\s*[-~to]+\s*([A-Za-z_-]*)(\d+)$/i);
+    if (rangeMatch) {
+      const prefix1 = rangeMatch[1];
+      const startNum = parseInt(rangeMatch[2], 10);
+      const prefix2 = rangeMatch[3];
+      const endNum = parseInt(rangeMatch[4], 10);
+      const prefix = prefix1 || prefix2 || '';
+
+      if (!isNaN(startNum) && !isNaN(endNum) && startNum <= endNum && endNum - startNum <= 100) {
+        for (let i = startNum; i <= endNum; i++) {
+          const room = `${prefix}${i}`;
+          if (!seen.has(room.toLowerCase())) {
+            seen.add(room.toLowerCase());
+            result.push(room);
+          }
+        }
+        continue;
+      }
+    }
+
+    const spaceTokens = part.split(/\s+/).filter(Boolean);
+    if (spaceTokens.length > 1 && spaceTokens.every((t) => /^[A-Za-z0-9_-]+$/.test(t))) {
+      for (const tok of spaceTokens) {
+        if (!seen.has(tok.toLowerCase())) {
+          seen.add(tok.toLowerCase());
+          result.push(tok);
+        }
+      }
+      continue;
+    }
+
+    if (!seen.has(part.toLowerCase())) {
+      seen.add(part.toLowerCase());
+      result.push(part);
+    }
+  }
+
+  return result;
+}
 
 export default function RoomsPage() {
   const { user } = useAuth();
@@ -134,7 +195,23 @@ export default function RoomsPage() {
   const [roomToDelete, setRoomToDelete] = useState<RoomListItem | null>(null);
   const [editingUnit, setEditingUnit] = useState<AccommodationUnitItem | null>(null);
 
-  // Add Room Form State
+  // Add Room (Multi-Room & Batch Provisioning) State
+  const [selectedHotelForAdd, setSelectedHotelForAdd] = useState<string>('');
+  const [roomGroups, setRoomGroups] = useState<RoomGroupForm[]>([
+    {
+      id: 'grp_1',
+      roomNumbersText: '',
+      building: 'Block A',
+      floor: 1,
+      genderPreference: 'MALE',
+      status: 'ACTIVE',
+      notes: '',
+      totalBeds: 4,
+      totalMats: 2,
+    },
+  ]);
+
+  // Backward compatibility state if referenced
   const [newRoom, setNewRoom] = useState<CreateRoomInput>({
     roomNumber: '',
     hotelId: '',
@@ -146,6 +223,30 @@ export default function RoomsPage() {
     totalBeds: 4,
     totalMats: 2,
   });
+
+  // Dynamic summary for the Add Room Modal
+  const modalSummary = useMemo(() => {
+    let totalRooms = 0;
+    let totalBeds = 0;
+    let totalMats = 0;
+    const roomList: string[] = [];
+
+    roomGroups.forEach((g) => {
+      const tokens = parseRoomTokens(g.roomNumbersText);
+      totalRooms += tokens.length;
+      totalBeds += tokens.length * (Number(g.totalBeds) || 0);
+      totalMats += tokens.length * (Number(g.totalMats) || 0);
+      roomList.push(...tokens);
+    });
+
+    return {
+      totalRooms,
+      totalBeds,
+      totalMats,
+      totalUnits: totalBeds + totalMats,
+      roomList,
+    };
+  }, [roomGroups]);
 
   // Edit Room Form State
   const [editRoomForm, setEditRoomForm] = useState<UpdateRoomInput>({
@@ -263,7 +364,14 @@ export default function RoomsPage() {
     setErrorMessage(null);
     try {
       const res = await api.createHotel(newHotelForm);
-      if (res.success) {
+      if (res.success && res.data) {
+        const createdHotel = res.data;
+        setSuccessMessage(`Hotel '${createdHotel.name}' created successfully! Now provision its rooms and beds.`);
+        setIsAddHotelOpen(false);
+        setNewHotelForm({ name: '', address: '', contactPhone: '', contactEmail: '', notes: '' });
+        await fetchHotels();
+        handleOpenAddRoom(createdHotel.id);
+      } else if (res.success) {
         setSuccessMessage(`Hotel '${newHotelForm.name}' created successfully.`);
         setIsAddHotelOpen(false);
         setNewHotelForm({ name: '', address: '', contactPhone: '', contactEmail: '', notes: '' });
@@ -409,57 +517,128 @@ export default function RoomsPage() {
   // --------------------------------------------------------------------------
 
   const handleOpenAddRoom = (defaultHotelId?: string) => {
-    setNewRoom({
-      roomNumber: '',
-      hotelId: defaultHotelId || (hotels[0]?.id || ''),
-      building: 'Block A',
-      floor: 1,
-      genderPreference: 'MALE',
-      status: 'ACTIVE',
-      notes: '',
-      totalBeds: 4,
-      totalMats: 2,
-    });
+    const targetHotelId = defaultHotelId || (hotelFilter !== 'ALL' ? hotelFilter : (hotels[0]?.id || ''));
+    setSelectedHotelForAdd(targetHotelId);
+    setRoomGroups([
+      {
+        id: `grp_${Date.now()}`,
+        roomNumbersText: '',
+        building: 'Block A',
+        floor: 1,
+        genderPreference: 'MALE',
+        status: 'ACTIVE',
+        notes: '',
+        totalBeds: 4,
+        totalMats: 2,
+      },
+    ]);
     setIsAddRoomOpen(true);
   };
 
-  const handleCreateRoom = async (e: React.FormEvent) => {
+  const handleAddRoomGroup = () => {
+    setRoomGroups((prev) => [
+      ...prev,
+      {
+        id: `grp_${Date.now()}_${prev.length + 1}`,
+        roomNumbersText: '',
+        building: prev[prev.length - 1]?.building || 'Block A',
+        floor: prev[prev.length - 1]?.floor || 1,
+        genderPreference: prev[prev.length - 1]?.genderPreference || 'MALE',
+        status: 'ACTIVE',
+        notes: '',
+        totalBeds: 4,
+        totalMats: 2,
+      },
+    ]);
+  };
+
+  const handleRemoveRoomGroup = (groupId: string) => {
+    if (roomGroups.length <= 1) return;
+    setRoomGroups((prev) => prev.filter((g) => g.id !== groupId));
+  };
+
+  const handleUpdateRoomGroup = (groupId: string, updates: Partial<RoomGroupForm>) => {
+    setRoomGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g))
+    );
+  };
+
+  const handleCreateRoomsBatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRoom.roomNumber.trim()) {
-      setErrorMessage('Room number is required');
+
+    if (!selectedHotelForAdd && hotels.length > 0) {
+      setErrorMessage('Please select a hotel facility for these rooms.');
+      return;
+    }
+
+    const seen = new Set<string>();
+    for (let i = 0; i < roomGroups.length; i++) {
+      const tokens = parseRoomTokens(roomGroups[i].roomNumbersText);
+      if (tokens.length === 0) {
+        setErrorMessage(`Please enter at least one room number for Group #${i + 1}.`);
+        return;
+      }
+      for (const tok of tokens) {
+        const key = tok.toLowerCase();
+        if (seen.has(key)) {
+          setErrorMessage(`Duplicate room number '${tok}' found across your groups. Please ensure all room numbers are unique.`);
+          return;
+        }
+        seen.add(key);
+      }
+    }
+
+    if (modalSummary.totalRooms === 0) {
+      setErrorMessage('Please enter at least one room number (e.g. 21, 23, 24, 43).');
       return;
     }
 
     setActionLoading(true);
     setErrorMessage(null);
+
     try {
-      const res = await api.createRoom({
-        roomNumber: newRoom.roomNumber.trim(),
-        hotelId: newRoom.hotelId || undefined,
-        building: newRoom.building?.trim() || undefined,
-        floor: newRoom.floor !== undefined ? Number(newRoom.floor) : undefined,
-        genderPreference: newRoom.genderPreference,
-        status: newRoom.status,
-        notes: newRoom.notes?.trim() || undefined,
-        totalBeds: Number(newRoom.totalBeds) || 0,
-        totalMats: Number(newRoom.totalMats) || 0,
-      });
+      const payload: CreateBulkRoomsInput = {
+        hotelId: selectedHotelForAdd || null,
+        groups: roomGroups.map((g) => ({
+          roomNumbers: parseRoomTokens(g.roomNumbersText),
+          building: g.building.trim() || undefined,
+          floor: Number(g.floor) || 0,
+          genderPreference: g.genderPreference,
+          status: g.status,
+          notes: g.notes.trim() || undefined,
+          totalBeds: Number(g.totalBeds) || 0,
+          totalMats: Number(g.totalMats) || 0,
+        })),
+      };
+
+      const res = await api.createBulkRooms(payload);
 
       if (res.success && res.data) {
-        setSuccessMessage(`Room ${res.data.roomNumber} created successfully with ${res.data.units.length} units.`);
+        setSuccessMessage(
+          `Successfully created ${res.data.createdCount} room(s) with ${res.data.totalUnits} total inventory units!`
+        );
         setIsAddRoomOpen(false);
         await fetchRooms();
         await fetchHotels();
-        fetchRoomDetail(res.data.id);
+
+        if (selectedHotelForAdd) {
+          setHotelFilter(selectedHotelForAdd);
+        }
+        if (res.data.rooms && res.data.rooms.length > 0) {
+          fetchRoomDetail(res.data.rooms[0].id);
+        }
       } else {
-        setErrorMessage(res.message || 'Failed to create room');
+        setErrorMessage(res.message || 'Failed to create rooms');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error creating room');
+      setErrorMessage(err.message || 'Error creating rooms');
     } finally {
       setActionLoading(false);
     }
   };
+
+  // Backward compatibility alias
+  const handleCreateRoom = handleCreateRoomsBatch;
 
   const handleOpenEditRoom = (room: RoomListItem) => {
     setEditingRoom(room);
@@ -1825,201 +2004,363 @@ export default function RoomsPage() {
   )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* MODAL 1: ADD ROOM DIALOG                                           */}
+      {/* MODAL 1: ADD ROOMS (MULTI-ROOM & BATCH PROVISIONING) DIALOG        */}
       {/* ------------------------------------------------------------------ */}
       {isAddRoomOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in fade-in zoom-in-95">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in fade-in zoom-in-95 max-h-[92vh] flex flex-col">
             {/* Header */}
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <Building className="w-5 h-5 text-blue-400" />
-                <h3 className="text-base font-bold">Add Physical Room &amp; Provision Inventory</h3>
+                <div>
+                  <h3 className="text-base font-bold">Add Physical Rooms &amp; Provision Inventory</h3>
+                  <p className="text-[11px] text-slate-400">Add single or multiple rooms at once for a hotel property</p>
+                </div>
               </div>
-              <button onClick={() => setIsAddRoomOpen(false)} className="text-slate-400 hover:text-white">
+              <button 
+                onClick={() => setIsAddRoomOpen(false)} 
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleCreateRoom} className="p-6 space-y-4">
+            <form onSubmit={handleCreateRoomsBatch} className="overflow-y-auto p-6 space-y-6 flex-1">
               {/* Hotel / Facility Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Hotel / Building Facility *
-                </label>
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Target Hotel / Building Facility <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddRoomOpen(false);
+                      setIsAddHotelOpen(true);
+                    }}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    + Create New Hotel
+                  </button>
+                </div>
                 <select
-                  value={newRoom.hotelId || ''}
-                  onChange={(e) => setNewRoom({ ...newRoom, hotelId: e.target.value || '' })}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={selectedHotelForAdd || ''}
+                  onChange={(e) => setSelectedHotelForAdd(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs bg-white border border-blue-300 rounded-lg text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">-- Select Hotel Facility --</option>
+                  <option value="">-- Select Target Hotel Facility --</option>
                   {hotels.map((h) => (
-                    <option key={h.id} value={h.id}>{h.name}</option>
+                    <option key={h.id} value={h.id}>
+                      {h.name} {h.roomCount !== undefined ? `(${h.roomCount} rooms)` : ''}
+                    </option>
                   ))}
                 </select>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Room Number */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Room Number <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. R-106"
-                    value={newRoom.roomNumber}
-                    onChange={(e) => setNewRoom({ ...newRoom, roomNumber: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Building */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Building / Block
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Block A"
-                    value={newRoom.building || ''}
-                    onChange={(e) => setNewRoom({ ...newRoom, building: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                {/* Floor */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Floor
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={newRoom.floor ?? 1}
-                    onChange={(e) => setNewRoom({ ...newRoom, floor: parseInt(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Room Category */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Room Category
-                  </label>
-                  <select
-                    value={newRoom.genderPreference}
-                    onChange={(e) => {
-                      const cat = e.target.value as GenderPreference;
-                      if (cat === 'MALE') {
-                        setNewRoom({ ...newRoom, genderPreference: cat, maleBeds: 4, maleMats: 2, femaleBeds: 0, femaleMats: 0, anyBeds: 0, anyMats: 0 });
-                      } else if (cat === 'FEMALE') {
-                        setNewRoom({ ...newRoom, genderPreference: cat, femaleBeds: 4, femaleMats: 2, maleBeds: 0, maleMats: 0, anyBeds: 0, anyMats: 0 });
-                      } else if (cat === 'FAMILY') {
-                        setNewRoom({ ...newRoom, genderPreference: cat, anyBeds: 4, anyMats: 2, maleBeds: 0, maleMats: 0, femaleBeds: 0, femaleMats: 0 });
-                      } else if (cat === 'GUEST') {
-                        setNewRoom({ ...newRoom, genderPreference: cat, anyBeds: 2, anyMats: 0, maleBeds: 0, maleMats: 0, femaleBeds: 0, femaleMats: 0 });
-                      } else {
-                        setNewRoom({ ...newRoom, genderPreference: cat });
-                      }
-                    }}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                  >
-                    <option value="MALE">Male (M) Room</option>
-                    <option value="FEMALE">Female (F) Room</option>
-                    <option value="FAMILY">Family Room</option>
-                    <option value="GUEST">Guest Room</option>
-                    <option value="ANY">Any / Unrestricted</option>
-                  </select>
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Initial Status
-                  </label>
-                  <select
-                    value={newRoom.status}
-                    onChange={(e) => setNewRoom({ ...newRoom, status: e.target.value as RoomStatus })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ACTIVE">Active (Available for allocation)</option>
-                    <option value="MAINTENANCE">Maintenance</option>
-                    <option value="INACTIVE">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Automatic Unit Provisioning Box */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                    Room Units Provisioning
-                  </h4>
-                  <span className="text-[11px] font-mono font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
-                    Total: {Number(newRoom.totalBeds || 0) + Number(newRoom.totalMats || 0)} Units
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      🛏️ Total Number of Beds
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newRoom.totalBeds ?? 4}
-                      onChange={(e) => setNewRoom({ ...newRoom, totalBeds: parseInt(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Auto-creates B1, B2... for this room</span>
+                {selectedHotelForAdd && (
+                  <div className="text-[11px] text-blue-800 flex items-center gap-1.5 pt-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>
+                      Selected:{' '}
+                      <strong>{hotels.find((h) => h.id === selectedHotelForAdd)?.name}</strong>
+                    </span>
                   </div>
+                )}
+              </div>
 
+              {/* Informative Guidance Banner */}
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold">Multiple Room Entry Supported</p>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Enter multiple rooms that share the same bed count (e.g.{' '}
+                    <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">21, 23, 24, 43</code> or ranges{' '}
+                    <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">101-105</code>). If you also need rooms with different beds/mats, click <strong>&quot;+ Add Another Room Group&quot;</strong> below!
+                  </p>
+                </div>
+              </div>
+
+              {/* Room Groups Builder */}
+              <div className="space-y-4">
+                {roomGroups.map((grp, idx) => {
+                  const tokens = parseRoomTokens(grp.roomNumbersText);
+                  const grpBeds = Number(grp.totalBeds) || 0;
+                  const grpMats = Number(grp.totalMats) || 0;
+                  const grpTotalUnits = tokens.length * (grpBeds + grpMats);
+
+                  return (
+                    <div
+                      key={grp.id}
+                      className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 shadow-xs space-y-4 relative"
+                    >
+                      {/* Group Header */}
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800">
+                            {roomGroups.length > 1 ? `Room Group #${idx + 1}` : 'Room Batch Configuration'}
+                          </span>
+                          {tokens.length > 0 && (
+                            <span className="text-[11px] font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
+                              {tokens.length} {tokens.length === 1 ? 'Room' : 'Rooms'} ({grpTotalUnits} units)
+                            </span>
+                          )}
+                        </div>
+
+                        {roomGroups.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRoomGroup(grp.id)}
+                            className="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2 py-1 rounded-md transition flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Room Numbers Input */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-bold text-slate-700">
+                            Room Number(s) <span className="text-rose-500">*</span>
+                          </label>
+                          <span className="text-[10px] text-slate-400">
+                            Comma-separated or range (e.g. 21, 23, 24, 43 or 101-105)
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. 21, 23, 24, 43 or 101-105 or single 12"
+                          value={grp.roomNumbersText}
+                          onChange={(e) =>
+                            handleUpdateRoomGroup(grp.id, { roomNumbersText: e.target.value })
+                          }
+                          className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+
+                        {/* Live Badges Preview of Detected Rooms */}
+                        {tokens.length > 0 ? (
+                          <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                              {tokens.length} Room{tokens.length > 1 ? 's' : ''} to create:
+                            </span>
+                            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                              {tokens.map((num) => (
+                                <span
+                                  key={num}
+                                  className="px-2 py-0.5 bg-blue-50 text-blue-700 font-mono text-[11px] font-bold rounded-md border border-blue-200"
+                                >
+                                  Room {num}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            Type single room number or multiple separated by commas / spaces.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Room Meta: Building, Floor, Category, Status */}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        {/* Building */}
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Building / Block
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Block A"
+                            value={grp.building}
+                            onChange={(e) =>
+                              handleUpdateRoomGroup(grp.id, { building: e.target.value })
+                            }
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        {/* Floor */}
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Floor
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={grp.floor ?? 1}
+                            onChange={(e) =>
+                              handleUpdateRoomGroup(grp.id, {
+                                floor: parseInt(e.target.value) || 0,
+                              })
+                            }
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        {/* Room Category */}
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Category
+                          </label>
+                          <select
+                            value={grp.genderPreference}
+                            onChange={(e) =>
+                              handleUpdateRoomGroup(grp.id, {
+                                genderPreference: e.target.value as GenderPreference,
+                              })
+                            }
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                          >
+                            <option value="MALE">Male (M) Room</option>
+                            <option value="FEMALE">Female (F) Room</option>
+                            <option value="FAMILY">Family Room</option>
+                            <option value="GUEST">Guest Room</option>
+                            <option value="ANY">Any / Unrestricted</option>
+                          </select>
+                        </div>
+
+                        {/* Status */}
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Initial Status
+                          </label>
+                          <select
+                            value={grp.status}
+                            onChange={(e) =>
+                              handleUpdateRoomGroup(grp.id, {
+                                status: e.target.value as RoomStatus,
+                              })
+                            }
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="ACTIVE">Active</option>
+                            <option value="MAINTENANCE">Maintenance</option>
+                            <option value="INACTIVE">Inactive</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Units Provisioning Box */}
+                      <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Room Units Provisioning (Per Room)</span>
+                          </h4>
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                            {grpBeds + grpMats} Units / Room
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                              🛏️ Total Beds per Room
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={grp.totalBeds}
+                              onChange={(e) =>
+                                handleUpdateRoomGroup(grp.id, {
+                                  totalBeds: parseInt(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">
+                              Auto-creates B1, B2...
+                            </span>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1">
+                              🧘 Floor Mats per Room
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={grp.totalMats}
+                              onChange={(e) =>
+                                handleUpdateRoomGroup(grp.id, {
+                                  totalMats: parseInt(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">
+                              Auto-creates M1, M2...
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-slate-500 flex items-center gap-1 pt-1">
+                          <span>ℹ️</span>
+                          <span>
+                            Each room gets <strong>{grpBeds} Beds</strong> &amp;{' '}
+                            <strong>{grpMats} Mats</strong> inheriting{' '}
+                            <strong>{grp.genderPreference}</strong> category.
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Notes */}
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Notes / Amenities (e.g. Attached washroom, ground floor accessible...)"
+                          value={grp.notes}
+                          onChange={(e) =>
+                            handleUpdateRoomGroup(grp.id, { notes: e.target.value })
+                          }
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add Another Room Group Button */}
+                <button
+                  type="button"
+                  onClick={handleAddRoomGroup}
+                  className="w-full py-2.5 border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/40 hover:bg-blue-50 text-blue-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Add Another Room Group (Different Beds / Mats)</span>
+                </button>
+              </div>
+
+              {/* Dynamic Overall Summary Box */}
+              {modalSummary.totalRooms > 0 && (
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      🧘 Total Number of Floor Mats
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={newRoom.totalMats ?? 2}
-                      onChange={(e) => setNewRoom({ ...newRoom, totalMats: parseInt(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">Auto-creates M1, M2... for this room</span>
+                    <h5 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-blue-600" />
+                      <span>Ready to Provision {modalSummary.totalRooms} Room(s)</span>
+                    </h5>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Total Inventory Capacity:{' '}
+                      <strong className="text-slate-900">{modalSummary.totalBeds} Beds</strong> +{' '}
+                      <strong className="text-slate-900">{modalSummary.totalMats} Floor Mats</strong> ={' '}
+                      <strong className="text-blue-700 font-bold">{modalSummary.totalUnits} Total Units</strong>
+                    </p>
+                  </div>
+                  <div className="text-[11px] font-mono font-bold text-slate-700 bg-white/80 px-3 py-1.5 rounded-lg border border-blue-100 self-start sm:self-auto">
+                    {modalSummary.totalRooms} Rooms | {modalSummary.totalUnits} Units
                   </div>
                 </div>
-
-                <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-900 flex items-center gap-2">
-                  <span className="text-base">ℹ️</span>
-                  <span>
-                    Beds and mats automatically inherit the <strong>{newRoom.genderPreference} Room</strong> category.
-                  </span>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Notes / Amenities Description
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Attached washroom, ground floor accessible..."
-                  value={newRoom.notes || ''}
-                  onChange={(e) => setNewRoom({ ...newRoom, notes: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                ></textarea>
-              </div>
+              )}
 
               {/* Footer */}
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsAddRoomOpen(false)}
@@ -2029,11 +2370,18 @@ export default function RoomsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+                  disabled={actionLoading || modalSummary.totalRooms === 0}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
                 >
-                  {actionLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  Create Room &amp; Inventory
+                  {actionLoading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    Create {modalSummary.totalRooms > 0 ? `${modalSummary.totalRooms} Room(s)` : 'Rooms'} &amp; Inventory
+                    {modalSummary.totalUnits > 0 ? ` (${modalSummary.totalUnits} Units)` : ''}
+                  </span>
                 </button>
               </div>
             </form>

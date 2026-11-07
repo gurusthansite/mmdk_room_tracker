@@ -141,6 +141,28 @@ export interface CreateRoomInput {
   anyMats?: number;
 }
 
+export interface BulkRoomGroupInput {
+  roomNumbers: string | string[];
+  building?: string;
+  floor?: number;
+  genderPreference?: GenderPreference;
+  status?: RoomStatus;
+  notes?: string;
+  totalBeds: number;
+  totalMats: number;
+}
+
+export interface CreateBulkRoomsInput {
+  hotelId?: string | null;
+  groups: BulkRoomGroupInput[];
+}
+
+export interface BulkRoomsResponse {
+  createdCount: number;
+  totalUnits: number;
+  rooms: any[];
+}
+
 export interface UpdateRoomInput {
   hotelId?: string | null;
   building?: string | null;
@@ -795,6 +817,13 @@ class ApiClient {
 
   async createRoom(data: CreateRoomInput): Promise<ApiResponse<RoomDetail>> {
     return this.request<RoomDetail>('/rooms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createBulkRooms(data: CreateBulkRoomsInput): Promise<ApiResponse<BulkRoomsResponse>> {
+    return this.request<BulkRoomsResponse>('/rooms/bulk', {
       method: 'POST',
       body: JSON.stringify(data),
     });
