@@ -351,7 +351,9 @@ export interface AvailabilityUnit {
 
 export interface AvailabilityRoom {
   id: string;
-  hotelId?: string;
+  hotelId?: string | null;
+  hotelName?: string | null;
+  hotel?: { id: string; name: string } | null;
   roomNumber: string;
   building: string | null;
   floor: number | null;
@@ -359,6 +361,7 @@ export interface AvailabilityRoom {
   status: RoomStatus;
   totalUnitsInRoom: number;
   availableCount: number;
+  occupancyPercentage?: number;
   availableBeds?: number;
   availableMats?: number;
   totalBeds?: number;
@@ -376,6 +379,12 @@ export interface CheckAvailabilityData {
     totalUnits: number;
     availableUnits: number;
     occupiedUnits: number;
+    occupancyRate?: number;
+    availableBeds?: number;
+    totalBeds?: number;
+    availableMats?: number;
+    totalMats?: number;
+    categoryBreakdown?: Record<string, { totalRooms: number; availableBeds: number; availableMats: number; availableUnits: number }>;
   };
   rooms: AvailabilityRoom[];
 }
@@ -876,6 +885,13 @@ class ApiClient {
     return this.request<void>(`/rooms/${id}`, { method: 'DELETE' });
   }
 
+  async deleteBulkRooms(roomIds: string[]): Promise<ApiResponse<{ deletedCount: number; deletedRoomNumbers: string[] }>> {
+    return this.request<{ deletedCount: number; deletedRoomNumbers: string[] }>('/rooms/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ roomIds }),
+    });
+  }
+
   // Registrations Management (Phase 5)
   async getRegistrations(params: {
     page?: number;
@@ -964,6 +980,7 @@ class ApiClient {
   async checkAvailability(params: {
     entryDate: string;
     exitDate: string;
+    hotelId?: string;
     genderCategory?: GenderCategory;
     unitType?: UnitType;
     building?: string;
@@ -973,6 +990,7 @@ class ApiClient {
     const query = new URLSearchParams();
     query.set('entryDate', params.entryDate);
     query.set('exitDate', params.exitDate);
+    if (params.hotelId && params.hotelId !== 'ALL') query.set('hotelId', params.hotelId);
     if (params.genderCategory) query.set('genderCategory', params.genderCategory);
     if (params.unitType) query.set('unitType', params.unitType);
     if (params.building && params.building !== 'ALL') query.set('building', params.building);

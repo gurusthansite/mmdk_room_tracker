@@ -38,7 +38,10 @@ import {
   Share2,
   LogOut,
   CheckSquare,
-  Wrench
+  Wrench,
+  LayoutGrid,
+  List,
+  Percent
 } from 'lucide-react';
 import { 
   api, 
@@ -53,7 +56,8 @@ import {
   UnitType,
   WhatsAppPreparedData,
   MessageLogItem,
-  MessageStatus
+  MessageStatus,
+  HotelListItem
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -158,12 +162,17 @@ export default function AllocatePage() {
   const [newPersonCheckOutTime, setNewPersonCheckOutTime] = useState<string>(`${defaultExit}T10:00`);
 
   // Step 3: Availability & Unit Selection
+  const [hotels, setHotels] = useState<HotelListItem[]>([]);
+  const [filterHotelId, setFilterHotelId] = useState<string>('ALL');
   const [availabilityRooms, setAvailabilityRooms] = useState<AvailabilityRoom[]>([]);
   const [availabilitySummary, setAvailabilitySummary] = useState<any>(null);
   const [filterBuilding, setFilterBuilding] = useState<string>('ALL');
   const [filterGender, setFilterGender] = useState<string>('ALL');
   const [filterUnitType, setFilterUnitType] = useState<string>('ALL');
   const [filterRoomCategory, setFilterRoomCategory] = useState<string>('ALL');
+  const [roomSearchQuery, setRoomSearchQuery] = useState<string>('');
+  const [occupancyFilter, setOccupancyFilter] = useState<'ALL' | '0' | '25' | '50' | '75' | '100'>('ALL');
+  const [viewMode, setViewMode] = useState<'COMPACT' | 'DETAILED'>('COMPACT');
   const [selectedUnits, setSelectedUnits] = useState<Array<{
     unitId: string;
     unitNumber: string;
@@ -174,6 +183,21 @@ export default function AllocatePage() {
     building: string | null;
     roomCategory?: GenderPreference;
   }>>([]);
+
+  // Fetch hotels for facility dropdown
+  useEffect(() => {
+    const loadHotels = async () => {
+      try {
+        const res = await api.getHotels();
+        if (res.success && res.data) {
+          setHotels(res.data);
+        }
+      } catch (err) {
+        console.error('Failed to load hotels list', err);
+      }
+    };
+    loadHotels();
+  }, []);
 
   useEffect(() => {
     if (selectedUnits.length === 1) {
@@ -274,6 +298,7 @@ export default function AllocatePage() {
       const res = await api.checkAvailability({
         entryDate: `${entryDate}T10:00:00.000Z`,
         exitDate: `${exitDate}T10:00:00.000Z`,
+        hotelId: filterHotelId !== 'ALL' ? filterHotelId : undefined,
         building: filterBuilding !== 'ALL' ? filterBuilding : undefined,
         genderCategory: filterGender !== 'ALL' ? (filterGender as GenderCategory) : undefined,
         unitType: filterUnitType !== 'ALL' ? (filterUnitType as UnitType) : undefined,
@@ -297,7 +322,7 @@ export default function AllocatePage() {
     if (activeTab === 'WORKBENCH') {
       fetchAvailability();
     }
-  }, [entryDate, exitDate, filterBuilding, filterGender, filterUnitType, filterRoomCategory, activeTab]);
+  }, [entryDate, exitDate, filterHotelId, filterBuilding, filterGender, filterUnitType, filterRoomCategory, activeTab]);
 
   // Load Allocations Directory
   const fetchAllocations = async () => {
@@ -821,6 +846,136 @@ export default function AllocatePage() {
     }
   };
 
+  // Dynamic buildings from rooms
+  const availableBuildings = useMemo(() => {
+    const set = new Set<string>();
+    availabilityRooms.forEach((r) => {
+      if (r.building?.trim()) set.add(r.building.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [availabilityRooms]);
+
+  // Live Metrics for Reception Desk Summary
+  const liveMetrics = useMemo(() => {
+    const totalRooms = availabilityRooms.length;
+    const totalUnits = availabilityRooms.reduce((acc, r) => acc + (r.totalUnitsInRoom || 0), 0);
+    const availableUnits = availabilityRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0);
+    const bookedUnits = totalUnits - availableUnits;
+    const occupancyRate = totalUnits > 0 ? Math.round((bookedUnits / totalUnits) * 100) : 0;
+    const availableBeds = availabilityRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0);
+    const availableMats = availabilityRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0);
+
+    const maleRooms = availabilityRooms.filter((r) => r.genderPreference === 'MALE');
+    const femaleRooms = availabilityRooms.filter((r) => r.genderPreference === 'FEMALE');
+    const familyRooms = availabilityRooms.filter((r) => r.genderPreference === 'FAMILY');
+    const guestRooms = availabilityRooms.filter((r) => r.genderPreference === 'GUEST');
+
+    return {
+      totalRooms,
+      totalUnits,
+      availableUnits,
+      bookedUnits,
+      occupancyRate,
+      availableBeds,
+      availableMats,
+      male: {
+        totalRooms: maleRooms.length,
+        availableBeds: maleRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0),
+        availableMats: maleRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0),
+        availableUnits: maleRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0),
+      },
+      female: {
+        totalRooms: femaleRooms.length,
+        availableBeds: femaleRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0),
+        availableMats: femaleRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0),
+        availableUnits: femaleRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0),
+      },
+      family: {
+        totalRooms: familyRooms.length,
+        availableBeds: familyRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0),
+        availableMats: familyRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0),
+        availableUnits: familyRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0),
+      },
+      guest: {
+        totalRooms: guestRooms.length,
+        availableBeds: guestRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0),
+        availableMats: guestRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0),
+        availableUnits: guestRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0),
+      },
+    };
+  }, [availabilityRooms]);
+
+  // Filtered and Naturally Sorted Rooms
+  const displayedRooms = useMemo(() => {
+    let list = [...availabilityRooms];
+
+    // Search room number
+    if (roomSearchQuery.trim()) {
+      const q = roomSearchQuery.trim().toLowerCase();
+      list = list.filter((r) => r.roomNumber.toLowerCase().includes(q));
+    }
+
+    // Occupancy Percentage Filter
+    if (occupancyFilter !== 'ALL') {
+      if (occupancyFilter === '0') {
+        // 0% Booked (100% Free)
+        list = list.filter((r) => r.availableCount === r.totalUnitsInRoom && r.totalUnitsInRoom > 0);
+      } else if (occupancyFilter === '25') {
+        // <= 25% Booked
+        list = list.filter((r) => {
+          const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
+          return occ <= 25;
+        });
+      } else if (occupancyFilter === '50') {
+        // <= 50% Booked
+        list = list.filter((r) => {
+          const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
+          return occ <= 50;
+        });
+      } else if (occupancyFilter === '75') {
+        // <= 75% Booked
+        list = list.filter((r) => {
+          const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
+          return occ <= 75;
+        });
+      } else if (occupancyFilter === '100') {
+        // 100% Full / Occupied
+        list = list.filter((r) => r.availableCount === 0);
+      }
+    }
+
+    // Natural numeric ascending sort: 13, 14, 15... 104, 105
+    list.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+
+    return list;
+  }, [availabilityRooms, roomSearchQuery, occupancyFilter]);
+
+  // Bulk select / deselect all free beds in a specific room
+  const handleSelectAllInRoom = (room: AvailabilityRoom) => {
+    const availableUnitsInRoom = room.units.filter((u) => u.isAvailable);
+    if (availableUnitsInRoom.length === 0) return;
+
+    const allSelected = availableUnitsInRoom.every((u) => selectedUnits.some((su) => su.unitId === u.id));
+
+    if (allSelected) {
+      setSelectedUnits((prev) => prev.filter((su) => su.roomId !== room.id));
+    } else {
+      const toAdd = availableUnitsInRoom
+        .filter((u) => !selectedUnits.some((su) => su.unitId === u.id))
+        .map((u) => ({
+          unitId: u.id,
+          unitNumber: u.unitNumber,
+          unitType: u.type,
+          genderCategory: u.genderCategory,
+          roomId: room.id,
+          roomNumber: room.roomNumber,
+          building: room.building,
+          roomCategory: room.genderPreference,
+        }));
+      setSelectedUnits((prev) => [...prev, ...toAdd]);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* ------------------------------------------------------------------ */}
@@ -1163,72 +1318,294 @@ export default function AllocatePage() {
             </div>
           )}
 
-          {/* Step 3: Availability Explorer & Unit Grid */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">3</span>
-                  Room &amp; Unit Availability Explorer
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Green cards are available for assignment in the selected dates.
+          {/* ================================================================ */}
+          {/* RECEPTION DESK LIVE CAPACITY DASHBOARD (Six Summary Cards)       */}
+          {/* ================================================================ */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Reception Desk &bull; Live Capacity Overview
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  ({entryDate} &rarr; {exitDate})
+                </span>
+              </div>
+              <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                ⚡ {liveMetrics.totalRooms} Rooms in Scope
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+              {/* Card 1: Booked Units & Occupancy % */}
+              <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-rose-800">Booked Units</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-200 text-rose-900">
+                    {liveMetrics.occupancyRate}% Full
+                  </span>
+                </div>
+                <p className="text-xl font-black text-rose-700 mt-1">
+                  {liveMetrics.bookedUnits} <span className="text-xs font-normal text-slate-500">/ {liveMetrics.totalUnits}</span>
+                </p>
+                <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">Assigned / Occupied</p>
+              </div>
+
+              {/* Card 2: Total Free Capacity */}
+              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-emerald-800">Free Capacity</span>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                </div>
+                <p className="text-xl font-black text-emerald-700 mt-1">
+                  {liveMetrics.availableUnits} <span className="text-xs font-semibold text-emerald-600">Free</span>
+                </p>
+                <p className="text-[10px] text-emerald-950 font-semibold truncate mt-0.5">
+                  {liveMetrics.availableBeds} Beds &bull; {liveMetrics.availableMats} Mats
                 </p>
               </div>
 
-              {/* Filters */}
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={filterRoomCategory}
-                  onChange={(e) => setFilterRoomCategory(e.target.value)}
-                  className="py-1 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-semibold"
-                >
-                  <option value="ALL">All Categories</option>
-                  <option value="MALE">👦 Male Rooms</option>
-                  <option value="FEMALE">👩 Female Rooms</option>
-                  <option value="FAMILY">👨‍👩‍👧‍👦 Family Rooms</option>
-                  <option value="GUEST">🌟 Guest Rooms</option>
-                </select>
+              {/* Card 3: Male Rooms */}
+              <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-blue-800">👦 Gents Rooms</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-200 text-blue-900">Male</span>
+                </div>
+                <p className="text-xl font-black text-blue-700 mt-1">
+                  {liveMetrics.male.availableUnits} <span className="text-xs font-semibold text-blue-600">Free</span>
+                </p>
+                <p className="text-[10px] text-blue-950 font-semibold truncate mt-0.5">
+                  {liveMetrics.male.availableBeds} Beds &bull; {liveMetrics.male.availableMats} Mats
+                </p>
+              </div>
 
-                <select
-                  value={filterBuilding}
-                  onChange={(e) => setFilterBuilding(e.target.value)}
-                  className="py-1 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
-                >
-                  <option value="ALL">All Buildings</option>
-                  <option value="Main Wing">Main Wing</option>
-                  <option value="Block A">Block A</option>
-                  <option value="Block B">Block B</option>
-                </select>
+              {/* Card 4: Female Rooms */}
+              <div className="p-3 rounded-xl border border-pink-200 bg-pink-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-pink-800">👩 Ladies Rooms</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-pink-200 text-pink-900">Female</span>
+                </div>
+                <p className="text-xl font-black text-pink-700 mt-1">
+                  {liveMetrics.female.availableUnits} <span className="text-xs font-semibold text-pink-600">Free</span>
+                </p>
+                <p className="text-[10px] text-pink-950 font-semibold truncate mt-0.5">
+                  {liveMetrics.female.availableBeds} Beds &bull; {liveMetrics.female.availableMats} Mats
+                </p>
+              </div>
 
-                <select
-                  value={filterGender}
-                  onChange={(e) => setFilterGender(e.target.value)}
-                  className="py-1 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
-                >
-                  <option value="ALL">All Genders</option>
-                  <option value="MALE">Male (M)</option>
-                  <option value="FEMALE">Female (F)</option>
-                  <option value="ANY">Any</option>
-                </select>
+              {/* Card 5: Family Rooms */}
+              <div className="p-3 rounded-xl border border-purple-200 bg-purple-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-purple-800">👨‍👩‍👧‍👦 Family Rooms</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-200 text-purple-900">Family</span>
+                </div>
+                <p className="text-xl font-black text-purple-700 mt-1">
+                  {liveMetrics.family.availableUnits} <span className="text-xs font-semibold text-purple-600">Free</span>
+                </p>
+                <p className="text-[10px] text-purple-950 font-semibold truncate mt-0.5">
+                  {liveMetrics.family.availableBeds} Beds &bull; {liveMetrics.family.availableMats} Mats
+                </p>
+              </div>
 
-                <select
-                  value={filterUnitType}
-                  onChange={(e) => setFilterUnitType(e.target.value)}
-                  className="py-1 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
-                >
-                  <option value="ALL">Beds &amp; Mats</option>
-                  <option value="BED">Beds Only</option>
-                  <option value="MAT">Floor Mats Only</option>
-                </select>
+              {/* Card 6: Guest Rooms */}
+              <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/50 text-slate-800 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-amber-800">🌟 Guest Rooms</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-200 text-amber-900">VIP</span>
+                </div>
+                <p className="text-xl font-black text-amber-700 mt-1">
+                  {liveMetrics.guest.availableUnits} <span className="text-xs font-semibold text-amber-600">Free</span>
+                </p>
+                <p className="text-[10px] text-amber-950 font-semibold truncate mt-0.5">
+                  {liveMetrics.guest.availableBeds} Beds &bull; {liveMetrics.guest.availableMats} Mats
+                </p>
+              </div>
+            </div>
+          </div>
 
-                <button
-                  onClick={fetchAvailability}
-                  className="p-1.5 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600"
-                  title="Reload Availability"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-                </button>
+          {/* ================================================================ */}
+          {/* STEP 3: AVAILABILITY EXPLORER & ADVANCED UNIT GRID               */}
+          {/* ================================================================ */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-5">
+            <div className="space-y-3 border-b border-slate-200 pb-4">
+              {/* Header & View Switcher */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">3</span>
+                    Room &amp; Unit Availability Explorer
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Showing <strong className="text-slate-900">{displayedRooms.length}</strong> room{displayedRooms.length !== 1 ? 's' : ''} in ascending numeric order. Green cards are available for assignment.
+                  </p>
+                </div>
+
+                {/* View Switcher Toggle */}
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start md:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('COMPACT')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      viewMode === 'COMPACT'
+                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Compact Matrix: Density view to avoid scrolling"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>⚡ Compact Matrix</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('DETAILED')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      viewMode === 'DETAILED'
+                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Detailed Grid: Classic horizontal bed cards"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>🔲 Detailed Grid</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Primary Filters Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                {/* 1. Hotel / Facility Selector */}
+                <div className="sm:col-span-2">
+                  <select
+                    value={filterHotelId}
+                    onChange={(e) => setFilterHotelId(e.target.value)}
+                    className="w-full py-1.5 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-bold focus:border-blue-500 focus:bg-white"
+                  >
+                    <option value="ALL">🏢 All Hotels &amp; Facilities</option>
+                    {hotels.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        🏢 {h.name} ({h.roomCount || 0} rooms)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. Dynamic Building / Block Selector */}
+                <div>
+                  <select
+                    value={filterBuilding}
+                    onChange={(e) => setFilterBuilding(e.target.value)}
+                    className="w-full py-1.5 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+                  >
+                    <option value="ALL">All Blocks / Buildings</option>
+                    {availableBuildings.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Room Number Search Box */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={roomSearchQuery}
+                    onChange={(e) => setRoomSearchQuery(e.target.value)}
+                    placeholder="Search room # (e.g. 13)..."
+                    className="w-full pl-8 pr-6 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:border-blue-500"
+                  />
+                  {roomSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setRoomSearchQuery('')}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+
+                {/* 4. Unit Type Selector */}
+                <div>
+                  <select
+                    value={filterUnitType}
+                    onChange={(e) => setFilterUnitType(e.target.value)}
+                    className="w-full py-1.5 px-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+                  >
+                    <option value="ALL">Beds &amp; Mats</option>
+                    <option value="BED">🛏️ Beds Only</option>
+                    <option value="MAT">🧘 Floor Mats Only</option>
+                  </select>
+                </div>
+
+                {/* 5. Reload Button */}
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={fetchAvailability}
+                    className="w-full py-1.5 px-3 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5"
+                    title="Reload Availability"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Reload</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Secondary Filters Row: Category Tabs & Booking % Quick Filter Pills */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-1">
+                {/* Category Pills */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Category:</span>
+                  {[
+                    { key: 'ALL', label: 'All' },
+                    { key: 'MALE', label: '👦 Male' },
+                    { key: 'FEMALE', label: '👩 Female' },
+                    { key: 'FAMILY', label: '👨‍👩‍👧‍👦 Family' },
+                    { key: 'GUEST', label: '🌟 Guest' },
+                  ].map((cat) => (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => setFilterRoomCategory(cat.key)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                        filterRoomCategory === cat.key
+                          ? 'bg-blue-600 text-white shadow-xs font-bold'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Booking % Quick Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Booked %:</span>
+                  {[
+                    { key: 'ALL', label: 'All' },
+                    { key: '0', label: '🟢 0% (100% Free)' },
+                    { key: '25', label: '≤ 25%' },
+                    { key: '50', label: '≤ 50%' },
+                    { key: '75', label: '≤ 75%' },
+                    { key: '100', label: '🔴 100% Full' },
+                  ].map((pct) => (
+                    <button
+                      key={pct.key}
+                      type="button"
+                      onClick={() => setOccupancyFilter(pct.key as any)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                        occupancyFilter === pct.key
+                          ? 'bg-slate-900 text-white shadow-xs font-bold'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {pct.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1257,20 +1634,188 @@ export default function AllocatePage() {
               </span>
             </div>
 
-            {/* Room Availability Cards */}
+            {/* Room Availability Displays */}
             {loading ? (
               <div className="py-16 text-center text-slate-500 space-y-2">
                 <RefreshCw className="w-7 h-7 animate-spin mx-auto text-blue-600" />
                 <p className="text-xs font-medium">Resolving real-time unit availability against database interval locks...</p>
               </div>
-            ) : availabilityRooms.length === 0 ? (
+            ) : displayedRooms.length === 0 ? (
               <div className="py-12 text-center text-slate-400">
                 <Building className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                <p className="text-xs">No rooms found matching the filter criteria.</p>
+                <p className="text-xs">No rooms found matching the current filter criteria.</p>
+              </div>
+            ) : viewMode === 'COMPACT' ? (
+              /* ================================================================ */
+              /* VIEW 1: COMPACT MATRIX VIEW (High Density, Easy to scan)         */
+              /* ================================================================ */
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                {displayedRooms.map((room) => {
+                  const occPercent = room.occupancyPercentage ?? (room.totalUnitsInRoom > 0 ? Math.round(((room.totalUnitsInRoom - room.availableCount) / room.totalUnitsInRoom) * 100) : 0);
+                  const freeUnits = room.units.filter((u) => u.isAvailable);
+                  const allAvailableSelected = freeUnits.length > 0 && freeUnits.every((u) => selectedUnits.some((su) => su.unitId === u.id));
+
+                  return (
+                    <div
+                      key={room.id}
+                      className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-md transition space-y-3 flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Header: Room Number + Building / Floor + Category */}
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-black text-slate-900 text-base">
+                                Room {room.roomNumber}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                {room.building || 'Main'} &bull; F{room.floor ?? 1}
+                              </span>
+                            </div>
+                            {room.hotelName && (
+                              <p className="text-[10px] text-slate-400 font-medium truncate max-w-[170px]">
+                                🏢 {room.hotelName}
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            {room.genderPreference === 'MALE' && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap">
+                                👦 Male
+                              </span>
+                            )}
+                            {room.genderPreference === 'FEMALE' && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-800 border border-pink-200 whitespace-nowrap">
+                                👩 Female
+                              </span>
+                            )}
+                            {room.genderPreference === 'FAMILY' && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 whitespace-nowrap">
+                                👨‍👩‍👧‍👦 Family
+                              </span>
+                            )}
+                            {room.genderPreference === 'GUEST' && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
+                                🌟 Guest
+                              </span>
+                            )}
+                            {room.genderPreference === 'ANY' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 whitespace-nowrap">
+                                Flexible
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Occupancy Progress Bar */}
+                        <div className="mt-2.5 space-y-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-700">
+                              <strong className={room.availableCount > 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                                {room.availableCount}
+                              </strong> / {room.totalUnitsInRoom} Free
+                            </span>
+                            <span className={`text-[10px] font-bold ${
+                              occPercent === 0
+                                ? 'text-emerald-700'
+                                : occPercent === 100
+                                ? 'text-rose-700'
+                                : 'text-amber-700'
+                            }`}>
+                              {occPercent}% Booked
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                occPercent === 0
+                                  ? 'bg-emerald-500'
+                                  : occPercent >= 75
+                                  ? 'bg-rose-500'
+                                  : 'bg-amber-500'
+                              }`}
+                              style={{ width: `${occPercent}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Compact Bed / Mat Units Badges */}
+                        <div className="mt-3 grid grid-cols-3 gap-1.5">
+                          {room.units.map((unit) => {
+                            const isSelected = selectedUnits.some((u) => u.unitId === unit.id);
+                            const isBed = unit.type === 'BED';
+                            const isCheckedIn = unit.state === 'OCCUPIED';
+                            const isReserved = unit.state === 'ALLOCATED' || unit.state === 'CONFIRMED';
+
+                            return (
+                              <button
+                                key={unit.id}
+                                type="button"
+                                onClick={() => handleToggleUnit(room, unit)}
+                                className={`py-1.5 px-2 rounded-lg border text-[11px] font-mono font-bold transition flex items-center justify-between gap-1 ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300'
+                                    : unit.isAvailable
+                                    ? 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-500'
+                                    : isCheckedIn
+                                    ? 'bg-purple-100 text-purple-950 border-purple-300 hover:bg-purple-200'
+                                    : isReserved
+                                    ? 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200'
+                                    : 'bg-slate-100 text-slate-600 border-slate-300'
+                                }`}
+                                title={`${unit.unitNumber} (${unit.type}) - ${unit.state}`}
+                              >
+                                <span className="flex items-center gap-1 truncate">
+                                  {isBed ? (
+                                    <Bed className="w-3 h-3 opacity-70 shrink-0" />
+                                  ) : (
+                                    <Layers className="w-3 h-3 opacity-70 shrink-0" />
+                                  )}
+                                  <span>{unit.unitNumber}</span>
+                                </span>
+                                {isSelected ? (
+                                  <Check className="w-3 h-3 text-white shrink-0" />
+                                ) : (
+                                  <span className="text-[9px] font-sans opacity-70 shrink-0">
+                                    {unit.isAvailable ? '✓' : unit.state === 'OCCUPIED' ? 'In' : 'Res'}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Quick Room Action Bar */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[10px] text-slate-500">
+                          {room.availableBeds ?? 0}B &bull; {room.availableMats ?? 0}M Free
+                        </span>
+                        {room.availableCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAllInRoom(room)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded transition ${
+                              allAvailableSelected
+                                ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                            }`}
+                          >
+                            {allAvailableSelected ? 'Deselect All' : '+ Select All Free'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
+              /* ================================================================ */
+              /* VIEW 2: DETAILED BED GRID (Classic Full Width View)              */
+              /* ================================================================ */
               <div className="space-y-6">
-                {availabilityRooms.map((room) => (
+                {displayedRooms.map((room) => (
                   <div key={room.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-3">
                     {/* Room Header */}
                     <div className="flex items-center justify-between">
@@ -1305,9 +1850,18 @@ export default function AllocatePage() {
                           </span>
                         )}
                       </div>
-                      <span className="text-xs font-semibold text-slate-600">
-                        <strong className="text-emerald-700">{room.availableCount}</strong> / {room.totalUnitsInRoom} Available
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectAllInRoom(room)}
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded"
+                        >
+                          Select All Free
+                        </button>
+                        <span className="text-xs font-semibold text-slate-600">
+                          <strong className="text-emerald-700">{room.availableCount}</strong> / {room.totalUnitsInRoom} Available
+                        </span>
+                      </div>
                     </div>
 
                     {/* Units in Room */}

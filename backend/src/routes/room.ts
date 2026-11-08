@@ -8,7 +8,8 @@ import {
   addUnitToRoom, 
   updateUnit, 
   rewriteUnitStatus,
-  deleteRoom 
+  deleteRoom,
+  deleteBulkRooms
 } from '../controllers/room.controller';
 import { requireAuth, requireRole } from '../middlewares/auth';
 import { UserRole } from '@prisma/client';
@@ -61,10 +62,22 @@ router.post(
   rewriteUnitStatus
 );
 
-// Delete room (Super Admin only)
+// Delete room (Super Admin and Allocation Manager)
+router.post(
+  '/bulk-delete',
+  requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]),
+  deleteBulkRooms
+);
+
+router.delete(
+  '/bulk',
+  requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]),
+  deleteBulkRooms
+);
+
 router.delete(
   '/:id', 
-  requireRole([UserRole.SUPER_ADMIN]), 
+  requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]), 
   deleteRoom
 );
 

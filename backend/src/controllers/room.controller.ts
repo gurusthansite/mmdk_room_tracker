@@ -1294,3 +1294,102 @@ export async function deleteRoom(req: Request, res: Response) {
     message: `Room ${room.roomNumber} deleted successfully.`,
   });
 }
+
+export const deleteBulkRoomsSchema = z.object({
+  roomIds: z.array(z.string().uuid()).min(1, 'At least one room ID must be specified'),
+});
+
+/**
+ * Bulk delete multiple rooms (safely blocked if active allocations or stays exist).
+ */
+export async function deleteBulkRooms(req: Request, res: Response) {
+  const parsed = deleteBulkRoomsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: parsed.error.errors,
+    });
+  }
+
+  const { roomIds } = parsed.data;
+
+  // Fetch rooms with units and their active allocation/stay records
+  const rooms = await prisma.room.findMany({
+    where: { id: { in: roomIds } },
+    include: {
+      units: {
+        include: {
+          allocationItems: {
+            where: {
+              status: { in: [AllocationItemStatus.TENTATIVE, AllocationItemStatus.CONFIRMED] },
+            },
+          },
+          stayRecords: {
+            where: {
+              status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (rooms.length === 0) {
+    return res.status(404).json({
+      success: false,
+      message: 'No matching rooms found to delete.',
+    });
+  }
+
+  // Check if any room has active allocations or checked-in occupants
+  const blockedRooms = rooms.filter((r) =>
+    r.units.some((u) => u.allocationItems.length > 0 || u.stayRecords.length > 0)
+  );
+
+  if (blockedRooms.length > 0) {
+    const blockedNumbers = blockedRooms.map((r) => r.roomNumber).join(', ');
+    return res.status(400).json({
+      success: false,
+      message: `Cannot delete room(s) [${blockedNumbers}] because they have active allocations or checked-in guests. Please cancel allocations or check out occupants first, or mark as INACTIVE.`,
+    });
+  }
+
+  const targetIds = rooms.map((r) => r.id);
+  const targetRoomNumbers = rooms.map((r) => r.roomNumber);
+
+  // Transactionally delete units and rooms
+  await prisma.$transaction(async (tx) => {
+    await tx.accommodationUnit.deleteMany({
+      where: { roomId: { in: targetIds } },
+    });
+    await tx.room.deleteMany({
+      where: { id: { in: targetIds } },
+    });
+
+    if (req.user) {
+      await tx.activityLog.create({
+        data: {
+          entityType: 'ROOM',
+          entityId: targetIds[0],
+          action: ActionType.DELETE,
+          userId: req.user.id,
+          details: {
+            count: targetIds.length,
+            deletedRoomNumbers: targetRoomNumbers,
+            bulk: true,
+          },
+        },
+      });
+    }
+  });
+
+  return res.json({
+    success: true,
+    message: `Successfully deleted ${targetIds.length} room(s): ${targetRoomNumbers.join(', ')}.`,
+    data: {
+      deletedCount: targetIds.length,
+      deletedRoomNumbers: targetRoomNumbers,
+    },
+  });
+}

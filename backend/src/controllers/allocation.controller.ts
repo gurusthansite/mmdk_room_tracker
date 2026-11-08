@@ -28,6 +28,7 @@ export const checkAvailabilitySchema = z.object({
   building: z.string().trim().optional(),
   roomCategory: z.nativeEnum(GenderPreference).optional(),
   excludeAllocationId: z.string().optional(), // For reallocations/editing
+  hotelId: z.string().trim().optional(),
 });
 
 export const createAllocationSchema = z.object({
@@ -73,7 +74,7 @@ export async function checkAvailability(req: Request, res: Response) {
     });
   }
 
-  const { entryDate, exitDate, genderCategory, unitType, building, roomCategory, excludeAllocationId } = parsed.data;
+  const { entryDate, exitDate, genderCategory, unitType, building, roomCategory, excludeAllocationId, hotelId } = parsed.data;
   const start = new Date(entryDate);
   const end = new Date(exitDate);
 
@@ -241,6 +242,9 @@ export async function checkAvailability(req: Request, res: Response) {
 
   // 3. Query all rooms and units matching filters
   const roomWhere: any = {};
+  if (hotelId && hotelId !== 'ALL') {
+    roomWhere.hotelId = hotelId;
+  }
   if (building && building !== 'ALL') {
     roomWhere.building = { equals: building, mode: 'insensitive' };
   }
@@ -250,8 +254,10 @@ export async function checkAvailability(req: Request, res: Response) {
 
   const rooms = await prisma.room.findMany({
     where: roomWhere,
-    orderBy: { roomNumber: 'asc' },
     include: {
+      hotel: {
+        select: { id: true, name: true },
+      },
       units: {
         where: {
           ...(genderCategory ? { genderCategory } : {}),
@@ -311,23 +317,57 @@ export async function checkAvailability(req: Request, res: Response) {
     const availableMats = unitsWithState.filter((u) => u.isAvailable && u.type === UnitType.MAT).length;
     const totalBeds = room.units.filter((u) => u.type === UnitType.BED).length;
     const totalMats = room.units.filter((u) => u.type === UnitType.MAT).length;
+    const totalUnitsCount = room.units.length;
+    const occupiedCount = totalUnitsCount - roomAvailableCount;
+    const occupancyPercentage = totalUnitsCount > 0 ? Math.round((occupiedCount / totalUnitsCount) * 100) : 0;
 
     return {
       id: room.id,
       hotelId: room.hotelId,
+      hotelName: room.hotel?.name || null,
+      hotel: room.hotel,
       roomNumber: room.roomNumber,
       building: room.building,
       floor: room.floor,
       genderPreference: room.genderPreference,
       status: room.status,
-      totalUnitsInRoom: room.units.length,
+      totalUnitsInRoom: totalUnitsCount,
       availableCount: roomAvailableCount,
+      occupancyPercentage,
       availableBeds,
       availableMats,
       totalBeds,
       totalMats,
       units: unitsWithState,
     };
+  });
+
+  // Natural numeric sort for room numbers (e.g. 13, 14, ... 104, 105)
+  roomAvailability.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+
+  const summaryAvailableBeds = roomAvailability.reduce((sum, r) => sum + (r.availableBeds || 0), 0);
+  const summaryTotalBeds = roomAvailability.reduce((sum, r) => sum + (r.totalBeds || 0), 0);
+  const summaryAvailableMats = roomAvailability.reduce((sum, r) => sum + (r.availableMats || 0), 0);
+  const summaryTotalMats = roomAvailability.reduce((sum, r) => sum + (r.totalMats || 0), 0);
+  const occupancyRate = totalUnitsInScope > 0 ? Math.round((occupiedUnitsInScope / totalUnitsInScope) * 100) : 0;
+
+  // Category breakdown for Reception desk clarity
+  const categoryBreakdown: Record<string, { totalRooms: number; availableBeds: number; availableMats: number; availableUnits: number }> = {
+    MALE: { totalRooms: 0, availableBeds: 0, availableMats: 0, availableUnits: 0 },
+    FEMALE: { totalRooms: 0, availableBeds: 0, availableMats: 0, availableUnits: 0 },
+    FAMILY: { totalRooms: 0, availableBeds: 0, availableMats: 0, availableUnits: 0 },
+    GUEST: { totalRooms: 0, availableBeds: 0, availableMats: 0, availableUnits: 0 },
+  };
+
+  roomAvailability.forEach((r) => {
+    const cat = r.genderPreference || 'ANY';
+    if (!categoryBreakdown[cat]) {
+      categoryBreakdown[cat] = { totalRooms: 0, availableBeds: 0, availableMats: 0, availableUnits: 0 };
+    }
+    categoryBreakdown[cat].totalRooms += 1;
+    categoryBreakdown[cat].availableBeds += (r.availableBeds || 0);
+    categoryBreakdown[cat].availableMats += (r.availableMats || 0);
+    categoryBreakdown[cat].availableUnits += (r.availableCount || 0);
   });
 
   return res.json({
@@ -342,6 +382,12 @@ export async function checkAvailability(req: Request, res: Response) {
         totalUnits: totalUnitsInScope,
         availableUnits: availableUnitsInScope,
         occupiedUnits: occupiedUnitsInScope,
+        occupancyRate,
+        availableBeds: summaryAvailableBeds,
+        totalBeds: summaryTotalBeds,
+        availableMats: summaryAvailableMats,
+        totalMats: summaryTotalMats,
+        categoryBreakdown,
       },
       rooms: roomAvailability,
     },
