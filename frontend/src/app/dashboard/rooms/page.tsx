@@ -55,8 +55,8 @@ import { useAuth } from '@/context/AuthContext';
 interface RoomGroupForm {
   id: string;
   roomNumbersText: string;
-  building: string;
-  floor: number;
+  building?: string;
+  floor?: number;
   genderPreference: GenderPreference;
   status: RoomStatus;
   notes: string;
@@ -201,8 +201,6 @@ export default function RoomsPage() {
     {
       id: 'grp_1',
       roomNumbersText: '',
-      building: 'Block A',
-      floor: 1,
       genderPreference: 'MALE',
       status: 'ACTIVE',
       notes: '',
@@ -537,8 +535,6 @@ export default function RoomsPage() {
       {
         id: `grp_${Date.now()}`,
         roomNumbersText: '',
-        building: 'Block A',
-        floor: 1,
         genderPreference: 'MALE',
         status: 'ACTIVE',
         notes: '',
@@ -555,8 +551,6 @@ export default function RoomsPage() {
       {
         id: `grp_${Date.now()}_${prev.length + 1}`,
         roomNumbersText: '',
-        building: prev[prev.length - 1]?.building || 'Block A',
-        floor: prev[prev.length - 1]?.floor || 1,
         genderPreference: prev[prev.length - 1]?.genderPreference || 'MALE',
         status: 'ACTIVE',
         notes: '',
@@ -615,8 +609,6 @@ export default function RoomsPage() {
         hotelId: selectedHotelForAdd || null,
         groups: roomGroups.map((g) => ({
           roomNumbers: parseRoomTokens(g.roomNumbersText),
-          building: g.building.trim() || undefined,
-          floor: Number(g.floor) || 0,
           genderPreference: g.genderPreference,
           status: g.status,
           notes: g.notes.trim() || undefined,
@@ -2182,42 +2174,8 @@ export default function RoomsPage() {
                         )}
                       </div>
 
-                      {/* Room Meta: Building, Floor, Category, Status */}
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        {/* Building */}
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Building / Block
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Block A"
-                            value={grp.building}
-                            onChange={(e) =>
-                              handleUpdateRoomGroup(grp.id, { building: e.target.value })
-                            }
-                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-
-                        {/* Floor */}
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            Floor
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            value={grp.floor ?? 1}
-                            onChange={(e) =>
-                              handleUpdateRoomGroup(grp.id, {
-                                floor: parseInt(e.target.value) || 0,
-                              })
-                            }
-                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-
+                      {/* Room Meta: Category & Status */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {/* Room Category */}
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2230,7 +2188,7 @@ export default function RoomsPage() {
                                 genderPreference: e.target.value as GenderPreference,
                               })
                             }
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                            className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                           >
                             <option value="MALE">Male (M) Room</option>
                             <option value="FEMALE">Female (F) Room</option>
@@ -2252,7 +2210,7 @@ export default function RoomsPage() {
                                 status: e.target.value as RoomStatus,
                               })
                             }
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="ACTIVE">Active</option>
                             <option value="MAINTENANCE">Maintenance</option>
