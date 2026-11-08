@@ -5,18 +5,18 @@ import { ActionType, RoomStatus } from '@prisma/client';
 
 export const createHotelSchema = z.object({
   name: z.string().trim().min(1, 'Hotel name is required'),
-  address: z.string().trim().optional().nullable(),
-  contactPhone: z.string().trim().optional().nullable(),
-  contactEmail: z.string().trim().email('Invalid email').optional().nullable(),
-  notes: z.string().trim().optional().nullable(),
+  address: z.string().trim().optional().nullable().or(z.literal('')),
+  contactPhone: z.string().trim().optional().nullable().or(z.literal('')),
+  contactEmail: z.string().trim().email('Invalid email').optional().nullable().or(z.literal('')),
+  notes: z.string().trim().optional().nullable().or(z.literal('')),
 });
 
 export const updateHotelSchema = z.object({
   name: z.string().trim().min(1, 'Hotel name is required').optional(),
-  address: z.string().trim().optional().nullable(),
-  contactPhone: z.string().trim().optional().nullable(),
-  contactEmail: z.string().trim().email('Invalid email').optional().nullable(),
-  notes: z.string().trim().optional().nullable(),
+  address: z.string().trim().optional().nullable().or(z.literal('')),
+  contactPhone: z.string().trim().optional().nullable().or(z.literal('')),
+  contactEmail: z.string().trim().email('Invalid email').optional().nullable().or(z.literal('')),
+  notes: z.string().trim().optional().nullable().or(z.literal('')),
 });
 
 /**
@@ -177,10 +177,10 @@ export async function createHotel(req: Request, res: Response) {
     const hotel = await prisma.hotel.create({
       data: {
         name,
-        address: address || null,
-        contactPhone: contactPhone || null,
-        contactEmail: contactEmail || null,
-        notes: notes || null,
+        address: address?.trim() ? address.trim() : null,
+        contactPhone: contactPhone?.trim() ? contactPhone.trim() : null,
+        contactEmail: contactEmail?.trim() ? contactEmail.trim() : null,
+        notes: notes?.trim() ? notes.trim() : null,
       },
     });
 

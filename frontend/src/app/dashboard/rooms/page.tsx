@@ -363,7 +363,14 @@ export default function RoomsPage() {
     setActionLoading(true);
     setErrorMessage(null);
     try {
-      const res = await api.createHotel(newHotelForm);
+      const sanitizedPayload = {
+        name: newHotelForm.name.trim(),
+        address: newHotelForm.address?.trim() || undefined,
+        contactPhone: newHotelForm.contactPhone?.trim() || undefined,
+        contactEmail: newHotelForm.contactEmail?.trim() || undefined,
+        notes: newHotelForm.notes?.trim() || undefined,
+      };
+      const res = await api.createHotel(sanitizedPayload);
       if (res.success && res.data) {
         const createdHotel = res.data;
         setSuccessMessage(`Hotel '${createdHotel.name}' created successfully! Now provision its rooms and beds.`);
@@ -404,7 +411,14 @@ export default function RoomsPage() {
     setActionLoading(true);
     setErrorMessage(null);
     try {
-      const res = await api.updateHotel(editingHotel.id, editHotelForm);
+      const sanitizedPayload = {
+        name: editHotelForm.name?.trim() || undefined,
+        address: editHotelForm.address?.trim() || undefined,
+        contactPhone: editHotelForm.contactPhone?.trim() || undefined,
+        contactEmail: editHotelForm.contactEmail?.trim() || undefined,
+        notes: editHotelForm.notes?.trim() || undefined,
+      };
+      const res = await api.updateHotel(editingHotel.id, sanitizedPayload);
       if (res.success) {
         setSuccessMessage(`Hotel '${editHotelForm.name || editingHotel.name}' updated successfully.`);
         setIsEditHotelOpen(false);
