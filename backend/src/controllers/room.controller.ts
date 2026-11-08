@@ -193,6 +193,9 @@ export async function listRooms(req: Request, res: Response) {
     };
   });
 
+  // Natural numeric ascending sort: 13, 14, 15... 104, 105
+  formattedRooms.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+
   return res.json({
     success: true,
     data: formattedRooms,

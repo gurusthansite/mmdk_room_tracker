@@ -172,7 +172,7 @@ export default function AllocatePage() {
   const [filterRoomCategory, setFilterRoomCategory] = useState<string>('ALL');
   const [roomSearchQuery, setRoomSearchQuery] = useState<string>('');
   const [occupancyFilter, setOccupancyFilter] = useState<'ALL' | '0' | '25' | '50' | '75' | '100'>('ALL');
-  const [viewMode, setViewMode] = useState<'COMPACT' | 'DETAILED'>('COMPACT');
+  const [viewMode, setViewMode] = useState<'DETAILED' | 'COMPACT'>('DETAILED');
   const [selectedUnits, setSelectedUnits] = useState<Array<{
     unitId: string;
     unitNumber: string;
@@ -1441,33 +1441,33 @@ export default function AllocatePage() {
                   </p>
                 </div>
 
-                {/* View Switcher Toggle */}
-                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 self-start md:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('COMPACT')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                      viewMode === 'COMPACT'
-                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Compact Matrix: Density view to avoid scrolling"
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>⚡ Compact Matrix</span>
-                  </button>
+                {/* View Switcher Toggle - Detailed Grid is Default */}
+                <div className="flex items-center gap-1.5 bg-slate-200/90 p-1 rounded-xl border border-slate-300 self-start md:self-auto shadow-xs">
                   <button
                     type="button"
                     onClick={() => setViewMode('DETAILED')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                       viewMode === 'DETAILED'
-                        ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-700 hover:text-slate-900'
                     }`}
-                    title="Detailed Grid: Classic horizontal bed cards"
+                    title="Classic Bed Grid: Original horizontal layout with complete details"
                   >
                     <List className="w-3.5 h-3.5" />
-                    <span>🔲 Detailed Grid</span>
+                    <span>🔲 Classic Bed Grid (Original View)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('COMPACT')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                      viewMode === 'COMPACT'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                    title="Compact Matrix: Fast density view to avoid far scrolling"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>⚡ Compact Matrix View</span>
                   </button>
                 </div>
               </div>
@@ -1554,57 +1554,65 @@ export default function AllocatePage() {
                 </div>
               </div>
 
-              {/* Secondary Filters Row: Category Tabs & Booking % Quick Filter Pills */}
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-1">
-                {/* Category Pills */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Category:</span>
-                  {[
-                    { key: 'ALL', label: 'All' },
-                    { key: 'MALE', label: '👦 Male' },
-                    { key: 'FEMALE', label: '👩 Female' },
-                    { key: 'FAMILY', label: '👨‍👩‍👧‍👦 Family' },
-                    { key: 'GUEST', label: '🌟 Guest' },
-                  ].map((cat) => (
-                    <button
-                      key={cat.key}
-                      type="button"
-                      onClick={() => setFilterRoomCategory(cat.key)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                        filterRoomCategory === cat.key
-                          ? 'bg-blue-600 text-white shadow-xs font-bold'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
+              {/* Category Quick Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Category:</span>
+                {[
+                  { key: 'ALL', label: 'All Categories' },
+                  { key: 'MALE', label: '👦 Male Rooms' },
+                  { key: 'FEMALE', label: '👩 Female Rooms' },
+                  { key: 'FAMILY', label: '👨‍👩‍👧‍👦 Family Rooms' },
+                  { key: 'GUEST', label: '🌟 Guest Rooms' },
+                ].map((cat) => (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => setFilterRoomCategory(cat.key)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                      filterRoomCategory === cat.key
+                        ? 'bg-blue-600 text-white shadow-xs font-bold'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Dedicated Booking Percentage Quick Filter Bar (High Prominence) */}
+              <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-200 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Percent className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-800">
+                    Booking % Filter:
+                  </span>
                 </div>
 
-                {/* Booking % Quick Filter Pills */}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase mr-1">Booked %:</span>
                   {[
-                    { key: 'ALL', label: 'All' },
-                    { key: '0', label: '🟢 0% (100% Free)' },
-                    { key: '25', label: '≤ 25%' },
-                    { key: '50', label: '≤ 50%' },
-                    { key: '75', label: '≤ 75%' },
-                    { key: '100', label: '🔴 100% Full' },
-                  ].map((pct) => (
-                    <button
-                      key={pct.key}
-                      type="button"
-                      onClick={() => setOccupancyFilter(pct.key as any)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                        occupancyFilter === pct.key
-                          ? 'bg-slate-900 text-white shadow-xs font-bold'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {pct.label}
-                    </button>
-                  ))}
+                    { key: 'ALL', label: 'All Rooms', activeCls: 'bg-slate-900 text-white border-slate-900' },
+                    { key: '0', label: '🟢 0% Booked (100% Free)', activeCls: 'bg-emerald-600 text-white border-emerald-600' },
+                    { key: '25', label: '≤ 25% Booked', activeCls: 'bg-blue-600 text-white border-blue-600' },
+                    { key: '50', label: '≤ 50% Booked', activeCls: 'bg-indigo-600 text-white border-indigo-600' },
+                    { key: '75', label: '≤ 75% Booked', activeCls: 'bg-amber-600 text-white border-amber-600' },
+                    { key: '100', label: '🔴 100% Full', activeCls: 'bg-rose-600 text-white border-rose-600' },
+                  ].map((pct) => {
+                    const isActive = occupancyFilter === pct.key;
+                    return (
+                      <button
+                        key={pct.key}
+                        type="button"
+                        onClick={() => setOccupancyFilter(pct.key as any)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                          isActive
+                            ? `${pct.activeCls} shadow-xs font-bold`
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {pct.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>

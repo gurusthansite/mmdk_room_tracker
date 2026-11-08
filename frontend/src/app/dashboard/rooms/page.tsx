@@ -481,7 +481,7 @@ export default function RoomsPage() {
       const matchesGender = genderFilter === 'ALL' || r.genderPreference === genderFilter;
 
       return matchesSearch && matchesHotel && matchesBuilding && matchesStatus && matchesGender;
-    });
+    }).sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
   }, [rooms, searchQuery, hotelFilter, buildingFilter, statusFilter, genderFilter]);
 
   // Unique buildings for filter dropdown
