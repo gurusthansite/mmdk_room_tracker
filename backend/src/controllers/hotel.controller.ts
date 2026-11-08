@@ -7,7 +7,10 @@ export const createHotelSchema = z.object({
   name: z.string().trim().min(1, 'Hotel name is required'),
   address: z.string().trim().optional().nullable().or(z.literal('')),
   contactPhone: z.string().trim().optional().nullable().or(z.literal('')),
-  contactEmail: z.string().trim().email('Invalid email').optional().nullable().or(z.literal('')),
+  contactEmail: z.preprocess(
+    (val) => (typeof val === 'string' && val.trim() === '' ? null : val),
+    z.string().trim().email('Invalid email').optional().nullable()
+  ),
   notes: z.string().trim().optional().nullable().or(z.literal('')),
 });
 
@@ -15,7 +18,10 @@ export const updateHotelSchema = z.object({
   name: z.string().trim().min(1, 'Hotel name is required').optional(),
   address: z.string().trim().optional().nullable().or(z.literal('')),
   contactPhone: z.string().trim().optional().nullable().or(z.literal('')),
-  contactEmail: z.string().trim().email('Invalid email').optional().nullable().or(z.literal('')),
+  contactEmail: z.preprocess(
+    (val) => (typeof val === 'string' && val.trim() === '' ? null : val),
+    z.string().trim().email('Invalid email').optional().nullable()
+  ),
   notes: z.string().trim().optional().nullable().or(z.literal('')),
 });
 

@@ -89,7 +89,23 @@ async function runBulkRoomVerification() {
     return { status, data };
   }
 
-  // 2. Create a test Hotel
+  // 2. Create a test Hotel with ONLY the name (all other fields empty or omitted)
+  const hotelResNameOnly = await apiCall('/hotels', {
+    method: 'POST',
+    body: {
+      name: `Name Only Hotel ${Date.now()}`,
+      address: '',
+      contactPhone: '',
+      contactEmail: '',
+      notes: '',
+    },
+  });
+  assert(
+    hotelResNameOnly.status === 201 && hotelResNameOnly.data.data?.id,
+    'Hotel created successfully with ONLY name and all other fields empty string'
+  );
+  const nameOnlyHotelId = hotelResNameOnly.data.data?.id;
+
   const hotelRes = await apiCall('/hotels', {
     method: 'POST',
     body: {
@@ -220,6 +236,11 @@ async function runBulkRoomVerification() {
   await prisma.hotel.delete({
     where: { id: testHotelId },
   });
+  if (nameOnlyHotelId) {
+    await prisma.hotel.delete({
+      where: { id: nameOnlyHotelId },
+    });
+  }
 
   server.close();
 
