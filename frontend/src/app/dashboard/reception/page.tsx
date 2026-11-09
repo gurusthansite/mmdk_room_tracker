@@ -31,6 +31,7 @@ import {
   BookmarkCheck,
   Smartphone,
   Eye,
+  EyeOff,
   UserPlus,
   SlidersHorizontal,
   Info,
@@ -181,8 +182,15 @@ export default function ReceptionPage() {
 
   // Purpose-based filters per tab
   const [filterHotelId, setFilterHotelId] = useState<string>('');
+  const [filterBuilding, setFilterBuilding] = useState<string>('');
   const [filterRoomCategory, setFilterRoomCategory] = useState<string>('');
   const [filterRoomNumber, setFilterRoomNumber] = useState<string>('');
+  const [filterRegistrationId, setFilterRegistrationId] = useState<string>('');
+  const [filterPrimaryName, setFilterPrimaryName] = useState<string>('');
+  const [filterPhone, setFilterPhone] = useState<string>('');
+  const [filterGender, setFilterGender] = useState<string>('ALL');
+  const [filterCheckInStatus, setFilterCheckInStatus] = useState<string>('ALL');
+  const [filterCheckOutStatus, setFilterCheckOutStatus] = useState<string>('ALL');
   const [filterArrivalDate, setFilterArrivalDate] = useState<string>('');
   const [filterCheckInDate, setFilterCheckInDate] = useState<string>('');
   const [filterCheckOutDate, setFilterCheckOutDate] = useState<string>('');
@@ -198,10 +206,20 @@ export default function ReceptionPage() {
   const [recoveryAvailableRooms, setRecoveryAvailableRooms] = useState<AvailabilityRoom[]>([]);
   const [recoveryLoadingRooms, setRecoveryLoadingRooms] = useState<boolean>(false);
   // Accidental Recovery Filters
+  const [recoveryBuildingFilter, setRecoveryBuildingFilter] = useState<string>('ALL');
   const [recoveryRoomSearch, setRecoveryRoomSearch] = useState<string>('');
   const [recoveryGenderFilter, setRecoveryGenderFilter] = useState<'ALL' | 'MALE' | 'FEMALE'>('ALL');
   const [recoveryUnitTypeFilter, setRecoveryUnitTypeFilter] = useState<'ALL' | 'BED' | 'MAT'>('ALL');
   const [recoveryAvailabilityFilter, setRecoveryAvailabilityFilter] = useState<'AVAILABLE_ONLY' | 'ALL'>('AVAILABLE_ONLY');
+
+  // Group Checkout by Primary Participant State
+  const [groupCheckoutModalOpen, setGroupCheckoutModalOpen] = useState<boolean>(false);
+  const [groupCheckoutReg, setGroupCheckoutReg] = useState<any | null>(null);
+  const [groupCheckoutMembers, setGroupCheckoutMembers] = useState<any[]>([]);
+  const [groupCheckoutSelectedStayIds, setGroupCheckoutSelectedStayIds] = useState<string[]>([]);
+  const [groupCheckoutNotes, setGroupCheckoutNotes] = useState<string>('Group departure checkout');
+  const [groupCheckoutConfirmOpen, setGroupCheckoutConfirmOpen] = useState<boolean>(false);
+  const [groupCheckoutLoading, setGroupCheckoutLoading] = useState<boolean>(false);
 
   // Active Reception Dossier Modal
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
@@ -456,6 +474,7 @@ export default function ReceptionPage() {
   const [aadhaarParticipant, setAadhaarParticipant] = useState<{ id: string; fullName: string } | null>(null);
   const [aadhaarNumber, setAadhaarNumber] = useState<string>('');
   const [aadhaarConsent, setAadhaarConsent] = useState<boolean>(false);
+  const [showAadhaarNumber, setShowAadhaarNumber] = useState<boolean>(false);
 
   // --------------------------------------------------------------------------
   // CHANGE ROOM / BED / MAT MODAL STATE (Pre & Post Check-In)
@@ -650,8 +669,15 @@ export default function ReceptionPage() {
         tab: activeTab,
         q: searchQuery,
         hotelId: filterHotelId || undefined,
+        building: filterBuilding || undefined,
         roomCategory: filterRoomCategory || undefined,
         roomNumber: filterRoomNumber || undefined,
+        registrationId: filterRegistrationId || undefined,
+        primaryName: filterPrimaryName || undefined,
+        phone: filterPhone || undefined,
+        gender: filterGender !== 'ALL' ? filterGender : undefined,
+        checkInStatus: filterCheckInStatus !== 'ALL' ? filterCheckInStatus : undefined,
+        checkOutStatus: filterCheckOutStatus !== 'ALL' ? filterCheckOutStatus : undefined,
         arrivalDate: filterArrivalDate || undefined,
         checkInDate: filterCheckInDate || undefined,
         checkOutDate: filterCheckOutDate || undefined,
@@ -684,8 +710,15 @@ export default function ReceptionPage() {
     queuePage,
     searchQuery,
     filterHotelId,
+    filterBuilding,
     filterRoomCategory,
     filterRoomNumber,
+    filterRegistrationId,
+    filterPrimaryName,
+    filterPhone,
+    filterGender,
+    filterCheckInStatus,
+    filterCheckOutStatus,
     filterArrivalDate,
     filterCheckInDate,
     filterCheckOutDate,
@@ -700,7 +733,8 @@ export default function ReceptionPage() {
     setRecoveryCheckInDate(new Date().toISOString().slice(0, 16));
     setRecoverySelectedUnitId(stayRecord.unit?.id || '');
 
-    // Reset filters and preset gender filter based on guest profile
+    // Reset filters
+    setRecoveryBuildingFilter('ALL');
     setRecoveryRoomSearch('');
     const guestGender = stayRecord.participant?.gender || stayRecord.registration?.gender || stayRecord.unit?.room?.genderPreference;
     if (guestGender === 'FEMALE') {
@@ -722,15 +756,14 @@ export default function ReceptionPage() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
-      // Fetch all available rooms across categories so user can filter freely
+      // Fetch all available inventory without restricting roomCategory to ensure all rooms are available for filtering
       const res = await api.checkAvailability({
         entryDate: `${todayStr}T10:00:00.000Z`,
         exitDate: `${tomorrowStr}T10:00:00.000Z`,
-        roomCategory: 'ANY',
       });
 
       if (res.success && res.data) {
-        setRecoveryAvailableRooms(res.data.rooms);
+        setRecoveryAvailableRooms(res.data.rooms || []);
       }
     } catch (err: any) {
       console.error('Error querying rooms for re-checkin:', err);
@@ -739,17 +772,34 @@ export default function ReceptionPage() {
     }
   };
 
+  // Extract unique building/hotel names from loaded recovery rooms
+  const recoveryAvailableBuildings = useMemo(() => {
+    if (!recoveryAvailableRooms || recoveryAvailableRooms.length === 0) return [];
+    const set = new Set<string>();
+    recoveryAvailableRooms.forEach((r) => {
+      const b = (r.building || r.hotelName || '').trim();
+      if (b) set.add(b);
+    });
+    return Array.from(set).sort();
+  }, [recoveryAvailableRooms]);
+
   // Accidental Recovery Filtered Rooms
   const filteredRecoveryRooms = useMemo(() => {
     if (!recoveryAvailableRooms || recoveryAvailableRooms.length === 0) return [];
 
     return recoveryAvailableRooms
       .filter((room) => {
+        // Building Name filter
+        if (recoveryBuildingFilter !== 'ALL') {
+          const bldg = (room.building || room.hotelName || '').trim().toLowerCase();
+          if (bldg !== recoveryBuildingFilter.toLowerCase()) return false;
+        }
+
         // Room Number partial search
         if (recoveryRoomSearch.trim()) {
           const q = recoveryRoomSearch.trim().toLowerCase();
           const matchNum = room.roomNumber.toLowerCase().includes(q);
-          const matchBldg = room.building?.toLowerCase().includes(q) ?? false;
+          const matchBldg = (room.building || room.hotelName || '').toLowerCase().includes(q);
           if (!matchNum && !matchBldg) return false;
         }
 
@@ -780,11 +830,120 @@ export default function ReceptionPage() {
       .filter((room) => room.units.length > 0);
   }, [
     recoveryAvailableRooms,
+    recoveryBuildingFilter,
     recoveryRoomSearch,
     recoveryGenderFilter,
     recoveryUnitTypeFilter,
     recoveryAvailabilityFilter,
   ]);
+
+  // Accurate matching counts of rooms and units
+  const recoverySummaryStats = useMemo(() => {
+    let totalMatchingRooms = filteredRecoveryRooms.length;
+    let availableUnits = 0;
+    let availableBeds = 0;
+    let availableMats = 0;
+
+    filteredRecoveryRooms.forEach((r) => {
+      r.units.forEach((u) => {
+        if (u.isAvailable) {
+          availableUnits++;
+          if (u.type === 'BED') availableBeds++;
+          if (u.type === 'MAT') availableMats++;
+        }
+      });
+    });
+
+    return { totalMatchingRooms, availableUnits, availableBeds, availableMats };
+  }, [filteredRecoveryRooms]);
+
+  // Group Checkout Handlers
+  const openGroupCheckoutForRegistration = async (registrationIdOrRecord: any) => {
+    setActionLoading(true);
+    try {
+      const regId = typeof registrationIdOrRecord === 'string'
+        ? registrationIdOrRecord
+        : registrationIdOrRecord.registration?.registrationId || registrationIdOrRecord.registrationId || registrationIdOrRecord.id;
+
+      const res = await api.getReceptionDossier(regId);
+      if (res.success && res.data) {
+        setGroupCheckoutReg(res.data.registration);
+
+        const members = (res.data.registration.participants || []).map((p: any) => {
+          const isCheckedIn = p.checkInStatus === 'CHECKED_IN' && !!p.activeStay?.id && !p.activeStay?.actualCheckOut;
+          return {
+            participantId: p.id,
+            fullName: p.fullName,
+            phone: p.phone,
+            gender: p.gender,
+            age: p.age,
+            isPrimary: p.isPrimary,
+            checkInStatus: p.checkInStatus,
+            stayRecord: p.activeStay,
+            stayRecordId: p.activeStay?.id,
+            roomNumber: p.activeStay?.unit?.room?.roomNumber,
+            building: p.activeStay?.unit?.room?.building || p.activeStay?.unit?.room?.hotel?.name,
+            unitNumber: p.activeStay?.unit?.unitNumber,
+            unitType: p.activeStay?.unit?.type,
+            isCheckedIn,
+          };
+        });
+
+        setGroupCheckoutMembers(members);
+        const checkedInStayIds = members.filter((m: any) => m.isCheckedIn).map((m: any) => m.stayRecordId);
+        setGroupCheckoutSelectedStayIds(checkedInStayIds);
+        setGroupCheckoutNotes('Group departure checkout');
+        setGroupCheckoutModalOpen(true);
+      } else {
+        setErrorMessage(res.message || 'Could not load group members for checkout.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error opening group checkout.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleExecuteGroupCheckout = async () => {
+    if (groupCheckoutSelectedStayIds.length === 0) {
+      notifyWarning('Please select at least one member to check out.');
+      setErrorMessage('Please select at least one member to check out.');
+      return;
+    }
+
+    const selectedMembers = groupCheckoutMembers.filter((m) =>
+      groupCheckoutSelectedStayIds.includes(m.stayRecordId)
+    );
+    const selectedNames = selectedMembers.map((m) => m.fullName).join(', ');
+
+    setGroupCheckoutLoading(true);
+    try {
+      const res = await api.batchCheckOutParticipants({
+        stayRecordIds: groupCheckoutSelectedStayIds,
+        notes: groupCheckoutNotes,
+      });
+
+      if (res.success) {
+        const msg = res.message || `Checked out ${groupCheckoutSelectedStayIds.length} guest(s) successfully: ${selectedNames}`;
+        setSuccessMessage(msg);
+        notifySuccess(msg);
+        setGroupCheckoutConfirmOpen(false);
+        setGroupCheckoutModalOpen(false);
+        setGroupCheckoutSelectedStayIds([]);
+        await fetchOverview();
+      } else {
+        const msg = res.message || 'Failed to complete group checkout.';
+        setErrorMessage(msg);
+        notifyError(msg);
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Error executing group checkout.';
+      setErrorMessage(msg);
+      notifyError(msg);
+    } finally {
+      setGroupCheckoutLoading(false);
+    }
+  };
 
   // Selected unit details across all loaded recovery rooms to ensure selection visibility
   const selectedRecoveryUnitInfo = useMemo(() => {
@@ -2785,7 +2944,7 @@ export default function ReceptionPage() {
 
           {/* Purpose-based Filter Row based on activeTab */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Filter: Hotel / Building (Available on all tabs) */}
+            {/* Filter: Hotel */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 uppercase">Hotel:</span>
               <select
@@ -2800,7 +2959,81 @@ export default function ReceptionPage() {
               </select>
             </div>
 
-            {/* Filter: Room Category (Available on all tabs) */}
+            {/* Filter: Building Name */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Building:</span>
+              <input
+                type="text"
+                value={filterBuilding}
+                onChange={(e) => { setFilterBuilding(e.target.value); setQueuePage(1); }}
+                placeholder="Building..."
+                className="w-24 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+              />
+            </div>
+
+            {/* Filter: Room Number */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Room:</span>
+              <input
+                type="text"
+                value={filterRoomNumber}
+                onChange={(e) => { setFilterRoomNumber(e.target.value); setQueuePage(1); }}
+                placeholder="Room #..."
+                className="w-20 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+              />
+            </div>
+
+            {/* Filter: Registration ID */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Reg ID:</span>
+              <input
+                type="text"
+                value={filterRegistrationId}
+                onChange={(e) => { setFilterRegistrationId(e.target.value); setQueuePage(1); }}
+                placeholder="REG-..."
+                className="w-20 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600 font-mono"
+              />
+            </div>
+
+            {/* Filter: Primary Participant Name */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Primary:</span>
+              <input
+                type="text"
+                value={filterPrimaryName}
+                onChange={(e) => { setFilterPrimaryName(e.target.value); setQueuePage(1); }}
+                placeholder="Name..."
+                className="w-24 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+              />
+            </div>
+
+            {/* Filter: Phone Number */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Phone:</span>
+              <input
+                type="text"
+                value={filterPhone}
+                onChange={(e) => { setFilterPhone(e.target.value); setQueuePage(1); }}
+                placeholder="Phone..."
+                className="w-24 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600 font-mono"
+              />
+            </div>
+
+            {/* Filter: Gender */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 uppercase">Gender:</span>
+              <select
+                value={filterGender}
+                onChange={(e) => { setFilterGender(e.target.value); setQueuePage(1); }}
+                className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+              >
+                <option value="ALL">All</option>
+                <option value="MALE">Male</option>
+                <option value="FEMALE">Female</option>
+              </select>
+            </div>
+
+            {/* Filter: Room Category */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 uppercase">Category:</span>
               <select
@@ -2840,16 +3073,6 @@ export default function ReceptionPage() {
                     <option value="CHECKED_IN">✅ Checked In</option>
                   </select>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Room:</span>
-                  <input
-                    type="text"
-                    value={filterRoomNumber}
-                    onChange={(e) => { setFilterRoomNumber(e.target.value); setQueuePage(1); }}
-                    placeholder="e.g. 101"
-                    className="w-20 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
-                  />
-                </div>
               </>
             )}
 
@@ -2865,14 +3088,16 @@ export default function ReceptionPage() {
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Room:</span>
-                  <input
-                    type="text"
-                    value={filterRoomNumber}
-                    onChange={(e) => { setFilterRoomNumber(e.target.value); setQueuePage(1); }}
-                    placeholder="e.g. 101"
-                    className="w-20 px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
-                  />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Status:</span>
+                  <select
+                    value={filterCheckInStatus}
+                    onChange={(e) => { setFilterCheckInStatus(e.target.value); setQueuePage(1); }}
+                    className="px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+                  >
+                    <option value="ALL">All Stays</option>
+                    <option value="CHECKED_IN">Checked In</option>
+                    <option value="EXTENDED">Extended</option>
+                  </select>
                 </div>
               </>
             )}
@@ -2917,13 +3142,20 @@ export default function ReceptionPage() {
               </>
             )}
 
-            {(filterHotelId || filterRoomCategory || filterRoomNumber || filterArrivalDate || filterCheckInDate || filterCheckOutDate || filterArrivalStatus || filterAllocationStatus) && (
+            {(filterHotelId || filterBuilding || filterRoomCategory || filterRoomNumber || filterRegistrationId || filterPrimaryName || filterPhone || filterGender !== 'ALL' || filterCheckInStatus !== 'ALL' || filterArrivalDate || filterCheckInDate || filterCheckOutDate || filterArrivalStatus || filterAllocationStatus) && (
               <button
                 type="button"
                 onClick={() => {
                   setFilterHotelId('');
+                  setFilterBuilding('');
                   setFilterRoomCategory('');
                   setFilterRoomNumber('');
+                  setFilterRegistrationId('');
+                  setFilterPrimaryName('');
+                  setFilterPhone('');
+                  setFilterGender('ALL');
+                  setFilterCheckInStatus('ALL');
+                  setFilterCheckOutStatus('ALL');
                   setFilterArrivalDate('');
                   setFilterCheckInDate('');
                   setFilterCheckOutDate('');
@@ -2931,9 +3163,10 @@ export default function ReceptionPage() {
                   setFilterAllocationStatus('');
                   setQueuePage(1);
                 }}
-                className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition"
+                className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition flex items-center gap-1"
               >
-                Reset Filters
+                <RotateCcw className="w-3 h-3" />
+                <span>Clear Filters</span>
               </button>
             )}
           </div>
@@ -3237,6 +3470,15 @@ export default function ReceptionPage() {
                                     <LogOut className="w-3.5 h-3.5" />
                                     <span>Check Out</span>
                                   </button>
+
+                                  <button
+                                    onClick={() => openGroupCheckoutForRegistration(item)}
+                                    className="px-2.5 py-1.5 text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition font-bold flex items-center gap-1 text-xs"
+                                    title="Group checkout: select and check out party members associated with this registration"
+                                  >
+                                    <Users className="w-3.5 h-3.5" />
+                                    <span>Group Check-Out</span>
+                                  </button>
                                 </>
                               )}
 
@@ -3444,6 +3686,15 @@ export default function ReceptionPage() {
                           >
                             <LogOut className="w-4 h-4" />
                             <span>Check Out</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openGroupCheckoutForRegistration(item)}
+                            className="w-full min-h-[44px] px-3 py-2 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition font-bold flex items-center justify-center gap-1 text-xs active:scale-98"
+                            title="Group checkout by primary participant"
+                          >
+                            <Users className="w-4 h-4" />
+                            <span>Group Check-Out (Party Members)</span>
                           </button>
                         </>
                       )
@@ -4360,27 +4611,24 @@ export default function ReceptionPage() {
 
                       {/* Execute Group Check-out Button */}
                       {dossier.registration.participants.some((p) => p.activeStay) && (
-                        <div className="p-4 bg-rose-50/80 border border-rose-200 rounded-xl flex items-center justify-between">
+                        <div className="p-4 bg-indigo-50/80 border border-indigo-200 rounded-xl flex items-center justify-between">
                           <div>
-                            <p className="font-bold text-rose-950 text-xs">Execute Group Check-Out</p>
-                            <p className="text-[11px] text-rose-800">
-                              Check out all currently staying party members and release their beds/mats back into inventory.
+                            <p className="font-bold text-indigo-950 text-xs">Execute Group Check-Out</p>
+                            <p className="text-[11px] text-indigo-800">
+                              Check out individual or all currently staying party members and safely release beds back into inventory.
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={() => {
-                              const stayIds = dossier.registration.participants
-                                .map((p) => p.activeStay?.id)
-                                .filter(Boolean) as string[];
-                              handleExecuteGroupCheckOut(stayIds, `${dossier.registration.primaryName}'s entire group (${stayIds.length} guests)`);
+                              openGroupCheckoutForRegistration(dossier.registration);
                             }}
                             disabled={actionLoading || groupCheckOutLoading}
-                            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-xs transition flex items-center gap-1.5 disabled:opacity-50"
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-xs transition flex items-center gap-1.5 disabled:opacity-50 text-xs"
                           >
                             {(actionLoading || groupCheckOutLoading) && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                            <LogOut className="w-4 h-4" />
-                            <span>Group Check-Out ({dossier.registration.participants.filter((p) => p.activeStay).length} Guests)</span>
+                            <Users className="w-4 h-4" />
+                            <span>Select &amp; Check Out Members ({dossier.registration.participants.filter((p) => p.activeStay).length})</span>
                           </button>
                         </div>
                       )}
@@ -4441,14 +4689,29 @@ export default function ReceptionPage() {
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
                   12-Digit Aadhaar Number
                 </label>
-                <input
-                  type="password"
-                  maxLength={12}
-                  value={aadhaarNumber}
-                  onChange={(e) => setAadhaarNumber(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Enter 12 digits (e.g. 555544443333)"
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showAadhaarNumber ? 'text' : 'password'}
+                    maxLength={12}
+                    value={aadhaarNumber}
+                    onChange={(e) => setAadhaarNumber(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Enter 12 digits (e.g. 555544443333)"
+                    className="w-full pl-3 pr-10 py-2 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAadhaarNumber((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 rounded-md transition"
+                    aria-label={showAadhaarNumber ? 'Hide Aadhaar number' : 'Show Aadhaar number'}
+                    title={showAadhaarNumber ? 'Hide Aadhaar digits' : 'Show Aadhaar digits'}
+                  >
+                    {showAadhaarNumber ? (
+                      <EyeOff className="w-4 h-4 text-emerald-700" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-slate-400" />
+                    )}
+                  </button>
+                </div>
                 {aadhaarNumber.length > 0 && (
                   <p className="text-[10px] text-slate-500 font-mono mt-1">
                     Masked preview: XXXX-XXXX-{aadhaarNumber.slice(-4) || '****'}
@@ -5844,14 +6107,15 @@ export default function ReceptionPage() {
                     <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
                     <span>Room &amp; Unit Filters</span>
                   </div>
-                  {(recoveryRoomSearch || recoveryGenderFilter !== 'ALL' || recoveryUnitTypeFilter !== 'ALL' || recoveryAvailabilityFilter !== 'AVAILABLE_ONLY') && (
+                  {(recoveryBuildingFilter !== 'ALL' || recoveryRoomSearch || recoveryGenderFilter !== 'ALL' || recoveryUnitTypeFilter !== 'ALL' || recoveryAvailabilityFilter !== 'AVAILABLE_ONLY') && (
                     <button
                       type="button"
                       onClick={() => {
+                        setRecoveryBuildingFilter('ALL');
                         setRecoveryRoomSearch('');
                         setRecoveryGenderFilter('ALL');
                         setRecoveryUnitTypeFilter('ALL');
-                        setRecoveryAvailabilityFilter('AVAILABLE_ONLY');
+                        setRecoveryAvailabilityFilter('ALL');
                       }}
                       className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
                     >
@@ -5861,7 +6125,7 @@ export default function ReceptionPage() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                   {/* A. Search Room Number Filter */}
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -5884,7 +6148,21 @@ export default function ReceptionPage() {
                     )}
                   </div>
 
-                  {/* B. Gender Filter */}
+                  {/* B. Building Name Filter */}
+                  <div>
+                    <select
+                      value={recoveryBuildingFilter}
+                      onChange={(e) => setRecoveryBuildingFilter(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-medium focus:outline-none focus:ring-1.5 focus:ring-blue-500"
+                    >
+                      <option value="ALL">🏢 All Buildings</option>
+                      {recoveryAvailableBuildings.map((b) => (
+                        <option key={b} value={b}>🏢 {b}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* C. Gender Filter */}
                   <div className="flex items-center rounded-lg bg-slate-200/80 p-0.5 text-xs">
                     {(['ALL', 'MALE', 'FEMALE'] as const).map((g) => (
                       <button
@@ -5902,7 +6180,7 @@ export default function ReceptionPage() {
                     ))}
                   </div>
 
-                  {/* C. Unit Type Filter */}
+                  {/* D. Unit Type Filter */}
                   <div className="flex items-center rounded-lg bg-slate-200/80 p-0.5 text-xs">
                     {(['ALL', 'BED', 'MAT'] as const).map((t) => (
                       <button
@@ -5920,7 +6198,7 @@ export default function ReceptionPage() {
                     ))}
                   </div>
 
-                  {/* D. Availability Filter */}
+                  {/* E. Availability Filter */}
                   <div className="flex items-center rounded-lg bg-slate-200/80 p-0.5 text-xs">
                     <button
                       type="button"
@@ -5947,7 +6225,7 @@ export default function ReceptionPage() {
                   </div>
                 </div>
 
-                {/* E. Active Selection Indicator (when hidden by active filters) */}
+                {/* Active Selection Indicator (when hidden by active filters) */}
                 {selectedRecoveryUnitInfo && !selectedRecoveryUnitInfo.isVisible && (
                   <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -5959,6 +6237,7 @@ export default function ReceptionPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        setRecoveryBuildingFilter('ALL');
                         setRecoveryRoomSearch('');
                         setRecoveryGenderFilter('ALL');
                         setRecoveryUnitTypeFilter('ALL');
@@ -5979,7 +6258,7 @@ export default function ReceptionPage() {
                     Select Room &amp; Bed / Mat Unit *
                   </label>
                   <span className="text-[11px] text-slate-500 font-medium">
-                    {filteredRecoveryRooms.length} {filteredRecoveryRooms.length === 1 ? 'room' : 'rooms'} matching
+                    {recoverySummaryStats.totalMatchingRooms} {recoverySummaryStats.totalMatchingRooms === 1 ? 'room' : 'rooms'} matching &bull; {recoverySummaryStats.availableUnits} available ({recoverySummaryStats.availableBeds} beds, {recoverySummaryStats.availableMats} mats)
                   </span>
                 </div>
 
@@ -5990,24 +6269,25 @@ export default function ReceptionPage() {
                   </div>
                 ) : recoveryAvailableRooms.length === 0 ? (
                   <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-center text-xs text-amber-800">
-                    No compatible rooms currently have free beds or mats. Free up a bed first or adjust room capacity.
+                    No room inventory records loaded in system. Please verify room configurations.
                   </div>
                 ) : filteredRecoveryRooms.length === 0 ? (
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
                     <p className="text-xs text-slate-600 font-medium">
-                      No rooms or units match the active filters.
+                      No rooms or units match the active filters ({recoveryAvailableRooms.length} total rooms loaded).
                     </p>
                     <button
                       type="button"
                       onClick={() => {
+                        setRecoveryBuildingFilter('ALL');
                         setRecoveryRoomSearch('');
                         setRecoveryGenderFilter('ALL');
                         setRecoveryUnitTypeFilter('ALL');
-                        setRecoveryAvailabilityFilter('AVAILABLE_ONLY');
+                        setRecoveryAvailabilityFilter('ALL');
                       }}
                       className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-blue-600 hover:bg-blue-50 transition"
                     >
-                      Reset Filters
+                      Reset All Filters
                     </button>
                   </div>
                 ) : (
@@ -6592,6 +6872,297 @@ export default function ReceptionPage() {
                 className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* GROUP CHECKOUT BY PRIMARY PARTICIPANT MODAL                        */}
+      {/* ------------------------------------------------------------------ */}
+      {groupCheckoutModalOpen && groupCheckoutReg && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black leading-tight">Group Check-Out</h3>
+                  <p className="text-xs text-indigo-100">
+                    Registration: <span className="font-mono font-bold text-white">{groupCheckoutReg.registrationId}</span> &bull; Primary: <strong className="text-white">{groupCheckoutReg.primaryName}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGroupCheckoutModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4">
+              {/* Registration / Primary Info Card */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Primary Contact</span>
+                  <span className="font-bold text-slate-900">{groupCheckoutReg.primaryName} ({groupCheckoutReg.mobile || 'No mobile'})</span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Group Members</span>
+                  <span className="font-bold text-slate-900">{groupCheckoutMembers.length} Members</span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Currently Checked In</span>
+                  <span className="font-bold text-emerald-700">
+                    {groupCheckoutMembers.filter((m) => m.isCheckedIn).length} In-House
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Selected for Check-Out</span>
+                  <span className="font-mono font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                    {groupCheckoutSelectedStayIds.length} Selected
+                  </span>
+                </div>
+              </div>
+
+              {/* Notice Banner */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Select individual members or the entire party for check-out.</p>
+                  <p className="text-[11px] text-blue-800">
+                    Unselected party members will safely remain checked in and their beds will not be released.
+                  </p>
+                </div>
+              </div>
+
+              {/* Members Selection List */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                <div className="bg-slate-100/90 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="select-all-group-members"
+                      checked={
+                        groupCheckoutMembers.filter((m) => m.isCheckedIn).length > 0 &&
+                        groupCheckoutMembers
+                          .filter((m) => m.isCheckedIn)
+                          .every((m) => groupCheckoutSelectedStayIds.includes(m.stayRecordId))
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const allCheckedInStayIds = groupCheckoutMembers
+                            .filter((m) => m.isCheckedIn)
+                            .map((m) => m.stayRecordId);
+                          setGroupCheckoutSelectedStayIds(allCheckedInStayIds);
+                        } else {
+                          setGroupCheckoutSelectedStayIds([]);
+                        }
+                      }}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="select-all-group-members" className="cursor-pointer select-none">
+                      Select All Checked-In Members
+                    </label>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {groupCheckoutSelectedStayIds.length} of {groupCheckoutMembers.filter((m) => m.isCheckedIn).length} selected
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                  {groupCheckoutMembers.map((member) => {
+                    const isSelected = groupCheckoutSelectedStayIds.includes(member.stayRecordId);
+                    const canSelect = member.isCheckedIn;
+
+                    return (
+                      <div
+                        key={member.participantId}
+                        className={`p-3 sm:px-4 flex items-center justify-between gap-3 text-xs transition ${
+                          !canSelect
+                            ? 'bg-slate-50/70 opacity-60'
+                            : isSelected
+                            ? 'bg-indigo-50/40'
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            disabled={!canSelect}
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setGroupCheckoutSelectedStayIds((prev) => [...prev, member.stayRecordId]);
+                              } else {
+                                setGroupCheckoutSelectedStayIds((prev) =>
+                                  prev.filter((id) => id !== member.stayRecordId)
+                                );
+                              }
+                            }}
+                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 disabled:opacity-40"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 truncate">{member.fullName}</span>
+                              {member.isPrimary && (
+                                <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded">
+                                  Primary
+                                </span>
+                              )}
+                              <span className="text-[11px] text-slate-400">
+                                {member.gender} &bull; {member.age ? `${member.age} yrs` : ''}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate flex items-center gap-2 mt-0.5">
+                              {member.roomNumber ? (
+                                <span className="font-medium text-slate-700">
+                                  Room {member.roomNumber} ({member.building || 'Main'}) &bull;{' '}
+                                  <span className="font-mono font-bold">
+                                    {member.unitType === 'BED' ? 'Bed' : 'Mat'} {member.unitNumber}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="italic text-slate-400">No active room assignment</span>
+                              )}
+                              {member.phone && <span>&bull; {member.phone}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 text-right">
+                          {member.isCheckedIn ? (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px] inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Checked In
+                            </span>
+                          ) : member.checkInStatus === 'CHECKED_OUT' ? (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium text-[10px]">
+                              Already Checked Out
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-medium text-[10px]">
+                              Not Checked In
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Checkout Reason / Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Checkout Reason / Staff Notes
+                </label>
+                <input
+                  type="text"
+                  value={groupCheckoutNotes}
+                  onChange={(e) => setGroupCheckoutNotes(e.target.value)}
+                  placeholder="e.g. Group departure checkout"
+                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setGroupCheckoutModalOpen(false)}
+                className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={groupCheckoutSelectedStayIds.length === 0}
+                onClick={() => setGroupCheckoutConfirmOpen(true)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold shadow-md transition flex items-center gap-1.5 active:scale-95"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Check Out Selected ({groupCheckoutSelectedStayIds.length})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* GROUP CHECKOUT CONFIRMATION DIALOG                                 */}
+      {/* ------------------------------------------------------------------ */}
+      {groupCheckoutConfirmOpen && groupCheckoutReg && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-[60] animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <h4 className="text-base font-extrabold text-slate-900">Confirm Group Check-Out</h4>
+                <p className="text-xs text-slate-500">
+                  Verify members before releasing bed assignments
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <p className="text-slate-700 font-semibold">
+                You are checking out <strong>{groupCheckoutSelectedStayIds.length}</strong> member(s):
+              </p>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
+                {groupCheckoutMembers
+                  .filter((m) => groupCheckoutSelectedStayIds.includes(m.stayRecordId))
+                  .map((m) => (
+                    <span
+                      key={m.participantId}
+                      className="px-2 py-1 bg-white border border-slate-300 rounded-md font-bold text-slate-800 text-[11px] shadow-2xs"
+                    >
+                      {m.fullName} {m.roomNumber ? `(Room ${m.roomNumber})` : ''}
+                    </span>
+                  ))}
+              </div>
+              {groupCheckoutMembers.filter((m) => m.isCheckedIn && !groupCheckoutSelectedStayIds.includes(m.stayRecordId)).length > 0 && (
+                <p className="text-[11px] text-amber-800 pt-1 border-t border-slate-200">
+                  Note: {groupCheckoutMembers.filter((m) => m.isCheckedIn && !groupCheckoutSelectedStayIds.includes(m.stayRecordId)).length} member(s) will remain checked in.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setGroupCheckoutConfirmOpen(false)}
+                className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+              >
+                Back to Selection
+              </button>
+              <button
+                type="button"
+                disabled={groupCheckoutLoading}
+                onClick={handleExecuteGroupCheckout}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold shadow-md transition flex items-center gap-1.5 active:scale-95"
+              >
+                {groupCheckoutLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Checking Out...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Confirm &amp; Check Out ({groupCheckoutSelectedStayIds.length})</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

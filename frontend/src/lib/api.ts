@@ -1112,6 +1112,13 @@ class ApiClient {
     hotelId?: string;
     roomCategory?: string;
     roomNumber?: string;
+    building?: string;
+    registrationId?: string;
+    primaryName?: string;
+    phone?: string;
+    gender?: string;
+    checkInStatus?: string;
+    checkOutStatus?: string;
     arrivalDate?: string;
     checkInDate?: string;
     checkOutDate?: string;
@@ -1126,6 +1133,13 @@ class ApiClient {
     if (params.hotelId) query.set('hotelId', params.hotelId);
     if (params.roomCategory) query.set('roomCategory', params.roomCategory);
     if (params.roomNumber) query.set('roomNumber', params.roomNumber);
+    if (params.building) query.set('building', params.building);
+    if (params.registrationId) query.set('registrationId', params.registrationId);
+    if (params.primaryName) query.set('primaryName', params.primaryName);
+    if (params.phone) query.set('phone', params.phone);
+    if (params.gender) query.set('gender', params.gender);
+    if (params.checkInStatus) query.set('checkInStatus', params.checkInStatus);
+    if (params.checkOutStatus) query.set('checkOutStatus', params.checkOutStatus);
     if (params.arrivalDate) query.set('arrivalDate', params.arrivalDate);
     if (params.checkInDate) query.set('checkInDate', params.checkInDate);
     if (params.checkOutDate) query.set('checkOutDate', params.checkOutDate);
@@ -1214,6 +1228,13 @@ class ApiClient {
     return this.request<any>('/reception/check-out', {
       method: 'POST',
       body: JSON.stringify({ stayRecordId, notes }),
+    });
+  }
+
+  async batchCheckOutParticipants(data: { stayRecordIds: string[]; notes?: string }): Promise<ApiResponse<any>> {
+    return this.request<any>('/reception/batch-check-out', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 

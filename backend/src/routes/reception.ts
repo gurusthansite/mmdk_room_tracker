@@ -11,6 +11,7 @@ import {
   confirmReception,
   checkInParticipants,
   checkOutParticipant,
+  batchCheckOutParticipants,
   transferParticipant,
   extendStay,
   changeAssignment,
@@ -63,6 +64,7 @@ router.post('/check-in', requireRole(STAFF_ROLES), checkInParticipants);
 
 // 8. Actual Checkout
 router.post('/check-out', requireRole(STAFF_ROLES), checkOutParticipant);
+router.post('/batch-check-out', requireRole(STAFF_ROLES), batchCheckOutParticipants);
 
 // 9. Room / Bed / Mat Transfer
 router.post('/transfer', requireRole(STAFF_ROLES), transferParticipant);

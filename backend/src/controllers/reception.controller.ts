@@ -75,6 +75,11 @@ export const checkOutSchema = z.object({
   notes: z.string().trim().optional(),
 });
 
+export const batchCheckOutSchema = z.object({
+  stayRecordIds: z.array(z.string().uuid('Invalid stay record ID')).min(1, 'Please select at least one member to check out'),
+  notes: z.string().trim().optional(),
+});
+
 export const transferStaySchema = z.object({
   stayRecordId: z.string().uuid('Invalid stay record ID'),
   newUnitId: z.string().uuid('Invalid new unit ID'),
@@ -138,6 +143,13 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
     const checkOutDate = typeof req.query.checkOutDate === 'string' ? req.query.checkOutDate.trim() : '';
     const arrivalStatus = typeof req.query.arrivalStatus === 'string' ? req.query.arrivalStatus.trim() : '';
     const allocationStatus = typeof req.query.allocationStatus === 'string' ? req.query.allocationStatus.trim() : '';
+    const building = typeof req.query.building === 'string' ? req.query.building.trim() : '';
+    const registrationId = typeof req.query.registrationId === 'string' ? req.query.registrationId.trim() : '';
+    const primaryName = typeof req.query.primaryName === 'string' ? req.query.primaryName.trim() : '';
+    const phone = typeof req.query.phone === 'string' ? req.query.phone.trim() : '';
+    const gender = typeof req.query.gender === 'string' ? req.query.gender.trim() : '';
+    const checkInStatus = typeof req.query.checkInStatus === 'string' ? req.query.checkInStatus.trim() : '';
+    const checkOutStatus = typeof req.query.checkOutStatus === 'string' ? req.query.checkOutStatus.trim() : '';
 
     const page = parseInt((req.query.page as string) || '1', 10);
     const limit = parseInt((req.query.limit as string) || '20', 10);
@@ -423,7 +435,8 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
 
     const roomFilter: any = {};
     if (hotelId) roomFilter.hotelId = hotelId;
-    if (roomCategory && roomCategory !== 'ALL') roomFilter.genderPreference = roomCategory;
+    if (building && building !== 'ALL') roomFilter.building = { contains: building, mode: 'insensitive' };
+    if (roomCategory && roomCategory !== 'ALL' && roomCategory !== 'ANY') roomFilter.genderPreference = roomCategory;
     if (roomNumber) roomFilter.roomNumber = { contains: roomNumber, mode: 'insensitive' };
 
     const unitFilter: any = {};
@@ -440,6 +453,25 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
 
       if (Object.keys(unitFilter).length > 0) {
         stayWhere.unit = unitFilter;
+      }
+
+      if (registrationId) {
+        stayWhere.registration = { ...(stayWhere.registration || {}), registrationId: { contains: registrationId, mode: 'insensitive' } };
+      }
+      if (primaryName) {
+        stayWhere.registration = { ...(stayWhere.registration || {}), primaryName: { contains: primaryName, mode: 'insensitive' } };
+      }
+      if (phone) {
+        stayWhere.OR = [
+          { participant: { phone: { contains: phone } } },
+          { registration: { mobile: { contains: phone } } },
+        ];
+      }
+      if (gender && gender !== 'ALL') {
+        stayWhere.participant = { ...(stayWhere.participant || {}), gender: gender };
+      }
+      if (checkInStatus && checkInStatus !== 'ALL') {
+        stayWhere.status = checkInStatus;
       }
 
       if (checkInDate) {
@@ -498,6 +530,25 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         const dEnd = new Date(checkOutDate);
         dEnd.setHours(23, 59, 59, 999);
         stayWhere.actualCheckOut = { gte: dStart, lte: dEnd };
+      }
+
+      if (registrationId) {
+        stayWhere.registration = { ...(stayWhere.registration || {}), registrationId: { contains: registrationId, mode: 'insensitive' } };
+      }
+      if (primaryName) {
+        stayWhere.registration = { ...(stayWhere.registration || {}), primaryName: { contains: primaryName, mode: 'insensitive' } };
+      }
+      if (phone) {
+        stayWhere.OR = [
+          { participant: { phone: { contains: phone } } },
+          { registration: { mobile: { contains: phone } } },
+        ];
+      }
+      if (gender && gender !== 'ALL') {
+        stayWhere.participant = { ...(stayWhere.participant || {}), gender: gender };
+      }
+      if (checkOutStatus && checkOutStatus !== 'ALL') {
+        stayWhere.status = checkOutStatus;
       }
 
       if (q) {
@@ -569,6 +620,19 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         } else if (arrivalStatus === 'EXPECTED') {
           allocWhere.registration = { status: { not: RegistrationStatus.CHECKED_IN } };
         }
+      }
+
+      if (registrationId) {
+        allocWhere.registration = { ...(allocWhere.registration || {}), registrationId: { contains: registrationId, mode: 'insensitive' } };
+      }
+      if (primaryName) {
+        allocWhere.registration = { ...(allocWhere.registration || {}), primaryName: { contains: primaryName, mode: 'insensitive' } };
+      }
+      if (phone) {
+        allocWhere.registration = { ...(allocWhere.registration || {}), mobile: { contains: phone } };
+      }
+      if (gender && gender !== 'ALL') {
+        allocWhere.registration = { ...(allocWhere.registration || {}), participants: { some: { gender: gender, isArchived: false } } };
       }
 
       if (Object.keys(roomFilter).length > 0) {
@@ -1760,6 +1824,138 @@ export async function checkOutParticipant(req: Request, res: Response): Promise<
       success: false,
       message: 'Failed to process checkout.',
       error: error.message,
+    });
+  }
+}
+
+/**
+ * 8b. Group Checkout by Primary Participant / Multi-select
+ * Atomic batch checkout releasing beds/mats for selected party members
+ */
+export async function batchCheckOutParticipants(req: Request, res: Response): Promise<void> {
+  try {
+    const validated = batchCheckOutSchema.parse(req.body);
+
+    const stays = await prisma.stayRecord.findMany({
+      where: {
+        id: { in: validated.stayRecordIds },
+        status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
+        actualCheckOut: null,
+      },
+      include: {
+        participant: true,
+        unit: { include: { room: true } },
+      },
+    });
+
+    if (stays.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'No active checked-in stay records found for the selected members.',
+      });
+      return;
+    }
+
+    const checkedOutNames: string[] = [];
+    const registrationIds = new Set<string>();
+
+    await prisma.$transaction(async (tx) => {
+      for (const stay of stays) {
+        checkedOutNames.push(stay.participant.fullName);
+        registrationIds.add(stay.registrationId);
+
+        // 1. Mark Stay as CHECKED_OUT with departure timestamp
+        await tx.stayRecord.update({
+          where: { id: stay.id },
+          data: {
+            actualCheckOut: new Date(),
+            status: StayStatus.CHECKED_OUT,
+            notes: validated.notes
+              ? `${stay.notes ? stay.notes + ' | ' : ''}Group Checkout: ${validated.notes}`
+              : stay.notes,
+          },
+        });
+
+        // 2. Mark participant as CHECKED_OUT
+        await tx.participant.update({
+          where: { id: stay.participantId },
+          data: {
+            checkInStatus: ParticipantStatus.CHECKED_OUT,
+          },
+        });
+
+        // 3. Mark underlying allocation item as COMPLETED if linked
+        if (stay.allocationItemId) {
+          await tx.allocationItem.update({
+            where: { id: stay.allocationItemId },
+            data: {
+              status: AllocationItemStatus.COMPLETED,
+            },
+          });
+        }
+
+        // 4. Audit log per stay
+        await tx.activityLog.create({
+          data: {
+            entityType: 'STAY_RECORD',
+            entityId: stay.id,
+            action: ActionType.CHECK_OUT,
+            userId: req.user?.id,
+            details: {
+              participantName: stay.participant.fullName,
+              roomNumber: stay.unit.room.roomNumber,
+              unitNumber: stay.unit.unitNumber,
+              unitType: stay.unit.type,
+              checkoutType: 'GROUP_CHECKOUT',
+              notes: validated.notes || null,
+            },
+          },
+        });
+      }
+
+      // Check remaining active stays for each impacted registration
+      for (const regId of registrationIds) {
+        const remainingActiveStays = await tx.stayRecord.count({
+          where: {
+            registrationId: regId,
+            status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
+            actualCheckOut: null,
+          },
+        });
+
+        if (remainingActiveStays === 0) {
+          await tx.registration.update({
+            where: { id: regId },
+            data: {
+              status: RegistrationStatus.CHECKED_OUT,
+            },
+          });
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Checked out ${checkedOutNames.length} member${checkedOutNames.length === 1 ? '' : 's'} successfully: ${checkedOutNames.join(', ')}`,
+      data: {
+        checkedOutCount: checkedOutNames.length,
+        checkedOutNames,
+        checkedOutIds: stays.map((s) => s.id),
+      },
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid input for group checkout.',
+        errors: error.errors,
+      });
+      return;
+    }
+    console.error('Error executing group checkout:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to complete group checkout.',
     });
   }
 }

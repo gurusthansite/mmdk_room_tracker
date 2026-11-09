@@ -281,7 +281,7 @@ export async function checkAvailability(req: Request, res: Response) {
   if (building && building !== 'ALL') {
     roomWhere.building = { equals: building, mode: 'insensitive' };
   }
-  if (roomCategory && (roomCategory as any) !== 'ALL') {
+  if (roomCategory && (roomCategory as any) !== 'ALL' && (roomCategory as any) !== 'ANY') {
     roomWhere.genderPreference = roomCategory;
   }
 
