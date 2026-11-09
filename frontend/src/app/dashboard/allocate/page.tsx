@@ -61,9 +61,11 @@ import {
   HotelListItem
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 export default function AllocatePage() {
   const { user } = useAuth();
+  const { success: notifySuccess, error: notifyError, warning: notifyWarning, info: notifyInfo } = useNotification();
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'ALLOCATION_MANAGER';
   const canSendWhatsApp = user?.role === 'SUPER_ADMIN' || user?.role === 'ALLOCATION_MANAGER' || user?.role === 'RECEPTION_STAFF';
 
@@ -73,8 +75,18 @@ export default function AllocatePage() {
   // Loading & Alerts
   const [loading, setLoading] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, _setErrorMessage] = useState<string | null>(null);
+  const [successMessage, _setSuccessMessage] = useState<string | null>(null);
+
+  const setSuccessMessage = React.useCallback((msg: string | null) => {
+    _setSuccessMessage(msg);
+    if (msg) notifySuccess(msg);
+  }, [notifySuccess]);
+
+  const setErrorMessage = React.useCallback((msg: string | null) => {
+    _setErrorMessage(msg);
+    if (msg) notifyError(msg);
+  }, [notifyError]);
 
   // --------------------------------------------------------------------------
   // WHATSAPP CLICK-TO-CHAT STATE

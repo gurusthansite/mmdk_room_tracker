@@ -41,11 +41,13 @@ import {
 } from 'recharts';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
 export default function ReportsPage() {
   const { user } = useAuth();
+  const { success: notifySuccess, error: notifyError, warning: notifyWarning, info: notifyInfo } = useNotification();
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<'occupancy' | 'registrations' | 'participants' | 'operations'>('occupancy');
@@ -152,11 +154,12 @@ export default function ReportsPage() {
   // Export handlers
   const handleExportExcel = async () => {
     if (user?.role !== 'SUPER_ADMIN' && user?.role !== 'ALLOCATION_MANAGER') {
-      alert('Report export is restricted to Super Admin and Allocation Managers.');
+      notifyWarning('Report export is restricted to Super Admin and Allocation Managers.');
       return;
     }
 
     setExportingExcel(true);
+    notifyInfo('Generating Excel report download...');
     try {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
@@ -176,9 +179,10 @@ export default function ReportsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (err) {
+      notifySuccess('Excel report exported successfully.');
+    } catch (err: any) {
       console.error('Export Excel error:', err);
-      alert('Failed to export Excel report.');
+      notifyError('Failed to export Excel report. Please try again.');
     } finally {
       setExportingExcel(false);
     }
@@ -186,11 +190,12 @@ export default function ReportsPage() {
 
   const handleExportPdf = async () => {
     if (user?.role !== 'SUPER_ADMIN' && user?.role !== 'ALLOCATION_MANAGER') {
-      alert('Report export is restricted to Super Admin and Allocation Managers.');
+      notifyWarning('Report export is restricted to Super Admin and Allocation Managers.');
       return;
     }
 
     setExportingPdf(true);
+    notifyInfo('Generating PDF report download...');
     try {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
@@ -210,9 +215,10 @@ export default function ReportsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (err) {
+      notifySuccess('PDF briefing report exported successfully.');
+    } catch (err: any) {
       console.error('Export PDF error:', err);
-      alert('Failed to export PDF briefing report.');
+      notifyError('Failed to export PDF briefing report. Please try again.');
     } finally {
       setExportingPdf(false);
     }
@@ -520,12 +526,12 @@ export default function ReportsPage() {
         {/* ---------------------------------------------------------------- */}
         {activeTab === 'occupancy' && (
           <div className="p-6 space-y-6">
-            {/* Building & Hotel Breakdown Cards */}
+            {/* Building Breakdown Cards */}
             <div>
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center justify-between">
-                <span>Property &amp; Floor Utilization Summary</span>
+                <span>Building Utilization Summary</span>
                 <span className="text-[11px] font-normal text-slate-500 lowercase">
-                  {(occupancyData?.summary || []).length} properties/blocks found
+                  {(occupancyData?.summary || []).length} buildings found
                 </span>
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -533,11 +539,11 @@ export default function ReportsPage() {
                   <div key={bldg.groupTitle || idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 shadow-2xs">
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="font-bold text-slate-900 text-xs block">
-                          {bldg.groupTitle || `${bldg.hotelName || bldg.building} — Floor ${bldg.floor}`}
+                        <span className="font-bold text-slate-900 text-sm block">
+                          {bldg.building || bldg.groupTitle || 'Main Block'}
                         </span>
                         <span className="text-[10px] text-slate-500 font-medium">
-                          {bldg.hotelName || 'Property Block'}
+                          Building Inventory
                         </span>
                       </div>
                       <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
@@ -576,7 +582,7 @@ export default function ReportsPage() {
                 </h3>
                 <input
                   type="text"
-                  placeholder="Filter room, property, or building..."
+                  placeholder="Filter room or building..."
                   value={roomFilterQuery}
                   onChange={(e) => setRoomFilterQuery(e.target.value)}
                   className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 max-w-xs"
@@ -588,8 +594,7 @@ export default function ReportsPage() {
                   <thead className="bg-slate-50 text-slate-600 font-semibold uppercase text-[10px]">
                     <tr>
                       <th className="py-2.5 px-3">Room</th>
-                      <th className="py-2.5 px-3">Hotel Property</th>
-                      <th className="py-2.5 px-3">Building &amp; Floor</th>
+                      <th className="py-2.5 px-3">Building</th>
                       <th className="py-2.5 px-3">Capacity</th>
                       <th className="py-2.5 px-3">Active (Occ / Res)</th>
                       <th className="py-2.5 px-3">Available</th>
@@ -610,12 +615,9 @@ export default function ReportsPage() {
                               {room.roomNumber}
                             </td>
                             <td className="py-2.5 px-3">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                {room.hotelName || room.building || 'Main Property'}
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                {room.building || room.hotelName || 'Main Block'}
                               </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-600">
-                              {room.building && room.building !== room.hotelName ? `${room.building} • ` : ''}Floor {room.floor ?? 1}
                             </td>
                             <td className="py-2.5 px-3 text-slate-700">
                               {room.totalCapacity} ({room.totalBeds}B, {room.totalMats}M)

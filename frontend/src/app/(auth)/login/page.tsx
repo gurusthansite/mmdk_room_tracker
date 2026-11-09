@@ -17,6 +17,7 @@ import {
   KeyRound
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 const loginSchema = z.object({
   email: z.string().trim().min(3, 'Please enter a valid email or login identifier'),
@@ -28,6 +29,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const { user, login, loading: authLoading } = useAuth();
+  const { success: notifySuccess, error: notifyError } = useNotification();
   const [loginRole, setLoginRole] = useState<'ADMIN' | 'RECEPTION'>('ADMIN');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -64,16 +66,21 @@ export default function LoginPage() {
     try {
       const res = await login(values);
       if (res.success) {
+        notifySuccess(`Welcome back, ${res.user?.name || 'Administrator'}!`);
         if (res.user?.role === 'RECEPTION_STAFF') {
           router.push('/dashboard/reception');
         } else {
           router.push('/dashboard');
         }
       } else {
-        setErrorMessage(res.message || 'Invalid email or password.');
+        const msg = res.message || 'Invalid email or password.';
+        setErrorMessage(msg);
+        notifyError(msg);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred during login.');
+      const msg = err.message || 'An unexpected error occurred during login.';
+      setErrorMessage(msg);
+      notifyError(msg);
     } finally {
       setIsSubmitting(false);
     }

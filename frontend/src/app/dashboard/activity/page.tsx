@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 interface ActivityLogItem {
   id: string;
@@ -58,6 +59,7 @@ interface ActivityInsights {
 
 export default function ActivityLogPage() {
   const { user } = useAuth();
+  const { success: notifySuccess, error: notifyError, warning: notifyWarning, info: notifyInfo } = useNotification();
   
   // Data states
   const [logs, setLogs] = useState<ActivityLogItem[]>([]);
@@ -173,11 +175,12 @@ export default function ActivityLogPage() {
   // Export filtered logs to Excel
   const handleExport = async () => {
     if (user?.role !== 'SUPER_ADMIN' && user?.role !== 'ALLOCATION_MANAGER') {
-      alert('Audit log export is restricted to Super Admin and Allocation Managers.');
+      notifyWarning('Audit log export is restricted to Super Admin and Allocation Managers.');
       return;
     }
 
     setExporting(true);
+    notifyInfo('Generating audit log export...');
     try {
       const params = new URLSearchParams();
       if (searchQuery.trim()) params.append('q', searchQuery.trim());
@@ -206,9 +209,10 @@ export default function ActivityLogPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (err) {
+      notifySuccess('Audit log exported successfully.');
+    } catch (err: any) {
       console.error('Export error:', err);
-      alert('Failed to export activity logs.');
+      notifyError('Failed to export activity logs.');
     } finally {
       setExporting(false);
     }

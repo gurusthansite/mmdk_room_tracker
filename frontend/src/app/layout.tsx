@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
+import { NotificationProvider } from '@/context/NotificationContext';
 
 export const metadata: Metadata = {
   title: 'Accommodation Management System',
@@ -16,7 +17,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
         <AuthProvider>
-          {children}
+          <NotificationProvider>
+            {children}
+          </NotificationProvider>
         </AuthProvider>
       </body>
     </html>

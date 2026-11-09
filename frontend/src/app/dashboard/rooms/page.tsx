@@ -51,6 +51,7 @@ import {
   BulkRoomGroupInput
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 interface RoomGroupForm {
   id: string;
@@ -137,12 +138,24 @@ export default function RoomsPage() {
     );
   }
 
+  const { success: notifySuccess, error: notifyError, warning: notifyWarning, info: notifyInfo } = useNotification();
+
   // State
   const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, _setErrorMessage] = useState<string | null>(null);
+  const [successMessage, _setSuccessMessage] = useState<string | null>(null);
+
+  const setSuccessMessage = React.useCallback((msg: string | null) => {
+    _setSuccessMessage(msg);
+    if (msg) notifySuccess(msg);
+  }, [notifySuccess]);
+
+  const setErrorMessage = React.useCallback((msg: string | null) => {
+    _setErrorMessage(msg);
+    if (msg) notifyError(msg);
+  }, [notifyError]);
 
   // Main view switcher
   const [mainView, setMainView] = useState<'ROOMS' | 'HOTELS'>('ROOMS');

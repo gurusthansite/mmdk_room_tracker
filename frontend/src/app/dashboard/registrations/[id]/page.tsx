@@ -36,19 +36,31 @@ import {
   UpdateRegistrationInput 
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
 
 export default function RegistrationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
   const { user } = useAuth();
+  const { success: notifySuccess, error: notifyError, warning: notifyWarning, info: notifyInfo } = useNotification();
   const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'ALLOCATION_MANAGER';
 
   const [registration, setRegistration] = useState<RegistrationDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, _setErrorMessage] = useState<string | null>(null);
+  const [successMessage, _setSuccessMessage] = useState<string | null>(null);
+
+  const setSuccessMessage = React.useCallback((msg: string | null) => {
+    _setSuccessMessage(msg);
+    if (msg) notifySuccess(msg);
+  }, [notifySuccess]);
+
+  const setErrorMessage = React.useCallback((msg: string | null) => {
+    _setErrorMessage(msg);
+    if (msg) notifyError(msg);
+  }, [notifyError]);
 
   // Edit Modal State
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);

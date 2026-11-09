@@ -417,25 +417,20 @@ export async function getOccupancyReport(req: Request, res: Response) {
       },
     });
 
-    // Building & Floor group summaries (Grouped primarily by Hotel Property!)
+    // Building group summaries (Grouped strictly by Building Name)
     const buildingMap: Record<string, any> = {};
 
     const roomDetails = rooms.map((room) => {
-      const resolvedHotelName = room.hotel?.name || (room.building && room.building !== 'Main' ? room.building : null) || 'Main Property';
-      const bldg = room.building && room.building !== 'Main' ? room.building : null;
-      const flr = room.floor !== null && room.floor !== undefined && room.floor !== 0 ? `Floor ${room.floor}` : null;
-      
-      let groupKey = resolvedHotelName;
-      if (bldg && flr) groupKey = `${resolvedHotelName} • ${bldg} (${flr})`;
-      else if (bldg) groupKey = `${resolvedHotelName} • ${bldg}`;
-      else if (flr) groupKey = `${resolvedHotelName} • ${flr}`;
+      const resolvedBuilding = room.building || room.hotel?.name || 'Main Block';
+      const resolvedHotelName = room.hotel?.name || resolvedBuilding;
+      const groupKey = resolvedBuilding;
 
       if (!buildingMap[groupKey]) {
         buildingMap[groupKey] = {
-          groupTitle: groupKey,
+          groupTitle: resolvedBuilding,
           hotelId: room.hotelId || 'DEFAULT',
           hotelName: resolvedHotelName,
-          building: bldg || resolvedHotelName,
+          building: resolvedBuilding,
           floor: room.floor ?? 1,
           totalRooms: 0,
           totalBeds: 0,
