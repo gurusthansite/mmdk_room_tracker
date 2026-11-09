@@ -38,7 +38,10 @@ import {
   Check,
   Phone,
   RotateCcw,
-  Undo2
+  Undo2,
+  BarChart3,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   api,
@@ -557,8 +560,10 @@ export default function ReceptionPage() {
   const [groupCheckOutLoading, setGroupCheckOutLoading] = useState<boolean>(false);
 
   // --------------------------------------------------------------------------
-  // TOUCH-FRIENDLY QUICK ACTION MODAL STATES (CHECK IN, CHANGE ROOM, CHECK OUT)
+  // RECEPTION DESK VIEW & QUICK ACTION MODAL STATES
   // --------------------------------------------------------------------------
+  const [showDashboardOverview, setShowDashboardOverview] = useState<boolean>(false);
+  const [isRoomCheckerOpen, setIsRoomCheckerOpen] = useState<boolean>(false);
   const [quickCheckInOpen, setQuickCheckInOpen] = useState<boolean>(false);
   const [quickCheckInSearch, setQuickCheckInSearch] = useState<string>('');
   const [quickCheckInTarget, setQuickCheckInTarget] = useState<any | null>(null);
@@ -656,6 +661,7 @@ export default function ReceptionPage() {
     setWalkInEntryDate(sketchEntryDate);
     setWalkInExitDate(sketchExitDate);
     setSelectedWalkInUnits(sketchSelectedUnits);
+    setIsRoomCheckerOpen(false);
     setIsWalkInOpen(true);
   };
 
@@ -2043,79 +2049,148 @@ export default function ReceptionPage() {
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           <button
             type="button"
+            onClick={() => setShowDashboardOverview((prev) => !prev)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 active:scale-95 ${
+              showDashboardOverview
+                ? 'bg-blue-50 text-blue-800 border-blue-300 shadow-xs'
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-blue-600" />
+            <span>{showDashboardOverview ? 'Hide Analytics' : 'Overview & Analytics'}</span>
+            {showDashboardOverview ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          <button
+            type="button"
             onClick={fetchOverview}
             className="px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-xs flex items-center gap-1.5 transition active:scale-95"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-            <span>Refresh Live Data</span>
+            <span>Refresh</span>
           </button>
         </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* QUICK ACTIONS BAR (Requirement 3)                                  */}
+      {/* COMPACT LIVE INVENTORY & OPERATIONAL METRIC STRIP                   */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:px-4 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="font-bold text-slate-500 uppercase text-[10px] tracking-wider">Available Capacity:</span>
+            <span className="font-extrabold text-emerald-800 text-sm">
+              {metrics.availableAccommodationCount} Free
+            </span>
+            <span className="text-[11px] text-slate-500 font-medium">
+              ({metrics.availableBedsCount} Beds &bull; {metrics.availableMatsCount} Mats)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 sm:pl-6">
+            <span className="font-bold text-slate-500 uppercase text-[10px] tracking-wider">In-House:</span>
+            <span className="font-extrabold text-rose-700 text-sm">
+              {metrics.totalBookedUnits ?? metrics.checkedInCount} Staying
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 sm:pl-6">
+            <span className="font-bold text-slate-500 uppercase text-[10px] tracking-wider">Today&apos;s Arrivals:</span>
+            <span className="font-extrabold text-blue-700 text-sm">
+              {metrics.dailyTasks?.expectedArrivals ?? metrics.expectedArrivalsCount}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 sm:pl-6">
+            <span className="font-bold text-slate-500 uppercase text-[10px] tracking-wider">Overdue:</span>
+            <span className={`font-extrabold text-sm ${
+              (metrics.dailyTasks?.overdueCheckouts ?? 0) > 0 ? 'text-amber-700' : 'text-slate-500'
+            }`}>
+              {metrics.dailyTasks?.overdueCheckouts ?? 0}
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowDashboardOverview((prev) => !prev)}
+          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline ml-auto"
+        >
+          <span>{showDashboardOverview ? 'Hide Full Breakdown' : 'View Full Breakdown'}</span>
+          {showDashboardOverview ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* QUICK ACTIONS BAR                                                  */}
       {/* ------------------------------------------------------------------ */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
         <button
           type="button"
           onClick={() => setIsWalkInOpen(true)}
-          className="p-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
+          className="p-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
-          <UserPlus className="w-5 h-5 text-blue-100" />
+          <UserPlus className="w-4 h-4 text-blue-100" />
           <span className="text-xs font-bold leading-tight">New Walk-In</span>
           <span className="text-[10px] text-blue-200">Register &amp; Assign</span>
         </button>
 
         <button
           type="button"
-          onClick={() => {
-            const el = document.getElementById('unified-reception-search');
-            el?.focus();
-            el?.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className="p-3 bg-purple-600 hover:bg-purple-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
+          onClick={() => setQuickCheckInOpen(true)}
+          className="p-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
-          <Search className="w-5 h-5 text-purple-100" />
-          <span className="text-xs font-bold leading-tight">Find Guest</span>
-          <span className="text-[10px] text-purple-200">Unified Profile</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabSwitch('TODAY_ARRIVALS')}
-          className="p-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
-        >
-          <CheckCircle2 className="w-5 h-5 text-emerald-100" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-100" />
           <span className="text-xs font-bold leading-tight">Check In</span>
           <span className="text-[10px] text-emerald-200">Arriving Guests</span>
         </button>
 
         <button
           type="button"
-          onClick={() => handleTabSwitch('CHECKED_IN')}
-          className="p-3 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
+          onClick={() => {
+            const firstStay = records.find((r) => r.participant && r.unit);
+            if (firstStay) {
+              handleLaunchChangeUnit(firstStay);
+            } else if (records[0]) {
+              handleLaunchChangeUnit(records[0]);
+            } else {
+              setQuickCheckInOpen(true);
+            }
+          }}
+          className="p-3 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
-          <ArrowRightLeft className="w-5 h-5 text-amber-100" />
+          <ArrowRightLeft className="w-4 h-4 text-amber-100" />
           <span className="text-xs font-bold leading-tight">Change Room</span>
           <span className="text-[10px] text-amber-200">Bed / Mat Reassign</span>
         </button>
 
         <button
           type="button"
-          onClick={() => handleTabSwitch('CHECKED_IN')}
-          className="p-3 bg-rose-600 hover:bg-rose-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
+          onClick={handleOpenQuickCheckOut}
+          className="p-3 bg-rose-600 hover:bg-rose-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
-          <LogOut className="w-5 h-5 text-rose-100" />
+          <LogOut className="w-4 h-4 text-rose-100" />
           <span className="text-xs font-bold leading-tight">Check Out</span>
           <span className="text-[10px] text-rose-200">Departing Guests</span>
         </button>
 
         <button
           type="button"
-          onClick={() => handleTabSwitch('CHECKED_OUT')}
-          className="p-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1.5 min-h-[56px] text-center"
+          onClick={() => setIsRoomCheckerOpen(true)}
+          className="p-3 bg-cyan-600 hover:bg-cyan-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
-          <RotateCcw className="w-5 h-5 text-indigo-100" />
+          <Search className="w-4 h-4 text-cyan-100" />
+          <span className="text-xs font-bold leading-tight">Find Vacant Room</span>
+          <span className="text-[10px] text-cyan-200">Live Inventory</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleTabSwitch('CHECKED_OUT')}
+          className="p-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
+        >
+          <RotateCcw className="w-4 h-4 text-indigo-100" />
           <span className="text-xs font-bold leading-tight">Check In Again</span>
           <span className="text-[10px] text-indigo-200">Accidental Recovery</span>
         </button>
@@ -2342,9 +2417,12 @@ export default function ReceptionPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* ROOM AVAILABILITY DASHBOARD (SIX SUMMARY CARDS FROM SKETCH)         */}
+      {/* EXPANDABLE OVERVIEW & ANALYTICS DASHBOARD                          */}
       {/* ------------------------------------------------------------------ */}
-      <div className="space-y-2">
+      {showDashboardOverview && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* ROOM AVAILABILITY DASHBOARD (SIX SUMMARY CARDS FROM SKETCH) */}
+          <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
             <Building className="w-4 h-4 text-blue-600" />
@@ -2604,415 +2682,8 @@ export default function ReceptionPage() {
           </div>
         </div>
       </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* SIMPLE AVAILABILITY SEARCH SECTION (FROM HANDWRITTEN SKETCH)       */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="p-5 rounded-2xl bg-white border-2 border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Search className="w-4 h-4 text-blue-600" />
-              <span>Search Room Availability</span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              Select category, number of persons, accommodation type, and stay dates to query compatible rooms
-            </p>
-          </div>
-        </div>
-
-        {/* The 3 Primary Controls from Handwritten Reference Sketch */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          {/* 1. Category Dropdown: Ladies, Gents, Family, Guest */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Category *
-            </label>
-            <select
-              value={sketchCategory}
-              onChange={(e) => setSketchCategory(e.target.value as GenderPreference)}
-              className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
-            >
-              <option value="FEMALE">👩 Ladies (Female)</option>
-              <option value="MALE">👦 Gents (Male)</option>
-              <option value="FAMILY">👨‍👩‍👧 Family</option>
-              <option value="GUEST">🌟 Guest</option>
-            </select>
-          </div>
-
-          {/* 2. Number of Persons Dropdown: 1 to 10 + Custom */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              No. of Persons *
-            </label>
-            <select
-              value={sketchPersons}
-              onChange={(e) => setSketchPersons(e.target.value)}
-              className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
-            >
-              <option value="1">1 Person</option>
-              <option value="2">2 Persons</option>
-              <option value="3">3 Persons</option>
-              <option value="4">4 Persons</option>
-              <option value="5">5 Persons</option>
-              <option value="6">6 Persons</option>
-              <option value="7">7 Persons</option>
-              <option value="8">8 Persons</option>
-              <option value="9">9 Persons</option>
-              <option value="10">10 Persons</option>
-              <option value="CUSTOM">Custom (More than 10)</option>
-            </select>
-
-            {sketchPersons === 'CUSTOM' && (
-              <input
-                type="number"
-                min={11}
-                max={500}
-                value={sketchCustomPersons}
-                onChange={(e) => setSketchCustomPersons(parseInt(e.target.value, 10) || 11)}
-                placeholder="Enter exact count..."
-                className="w-full mt-1.5 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-bold"
-              />
-            )}
-          </div>
-
-          {/* 3. Accommodation Type Dropdown: Beds, Mats, Either */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Beds / Mats *
-            </label>
-            <select
-              value={sketchUnitType}
-              onChange={(e) => setSketchUnitType(e.target.value as any)}
-              className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
-            >
-              <option value="ALL">Either (Beds or Mats)</option>
-              <option value="BED">🛏️ Bed (Beds Only)</option>
-              <option value="MAT">🧘 Mat (Mats Only)</option>
-            </select>
-          </div>
-
-          {/* Check-In Date */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Check-In Date *
-            </label>
-            <input
-              type="date"
-              value={sketchEntryDate}
-              onChange={(e) => setSketchEntryDate(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-medium focus:outline-none focus:border-blue-600"
-            />
-          </div>
-
-          {/* Planned Check-Out Date */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Check-Out Date *
-            </label>
-            <input
-              type="date"
-              value={sketchExitDate}
-              onChange={(e) => setSketchExitDate(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-medium focus:outline-none focus:border-blue-600"
-            />
-          </div>
-        </div>
-
-        {/* Prominent Search Availability Button (The Rectangle from Sketch) */}
-        <div className="pt-2 flex justify-center">
-          <button
-            type="button"
-            onClick={handleSearchRoomAvailability}
-            disabled={sketchSearching}
-            className="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-black shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 active:scale-98"
-          >
-            {sketchSearching ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Checking Real-Time Inventory...</span>
-              </>
-            ) : (
-              <>
-                <Search className="w-4 h-4" />
-                <span>Search Availability</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* ------------------------------------------------------------------ */}
-        {/* SEARCH RESULTS: MATCHING AVAILABLE ROOMS & MANUAL UNIT SELECTION   */}
-        {/* ------------------------------------------------------------------ */}
-        {sketchHasSearched && (
-          <div className="pt-4 border-t border-slate-200 space-y-3 animate-in fade-in">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                <span>Matching Rooms for {sketchCategory} ({sketchAvailableRooms.length} Rooms Found)</span>
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                Tap individual bed/mat badges to select units across rooms for <strong>{targetRequiredPersons} person(s)</strong>
-              </span>
-            </div>
-
-            {/* Selection Banner if units are clicked */}
-            {sketchSelectedUnits.length > 0 && (
-              <div className="p-3.5 bg-blue-50 border-2 border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <div>
-                  <span className="font-bold text-blue-900 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                    Selected {sketchSelectedUnits.length} of {targetRequiredPersons} Person(s) Required:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {sketchSelectedUnits.map((u) => (
-                      <span
-                        key={u.unitId}
-                        className="px-2 py-0.5 rounded bg-white border border-blue-300 text-blue-900 font-mono font-bold"
-                      >
-                        Room {u.roomNumber} &bull; {u.unitType} {u.unitNumber}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setSketchSelectedUnits([])}
-                    className="px-3 py-1.5 text-slate-600 hover:text-slate-900 font-semibold"
-                  >
-                    Clear Selection
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleProceedToAllocateFromSearch}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition active:scale-95"
-                  >
-                    Proceed to Allocate Selected Units &rarr;
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Rooms Cards List */}
-            {sketchAvailableRooms.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs">
-                No available rooms found for the selected category, dates, or unit type.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {sketchAvailableRooms.map((room) => {
-                  const availBeds = room.availableBeds ?? room.units.filter((u) => u.isAvailable && u.type === 'BED').length;
-                  const availMats = room.availableMats ?? room.units.filter((u) => u.isAvailable && u.type === 'MAT').length;
-                  const totalFree = availBeds + availMats;
-
-                  return (
-                    <div
-                      key={room.id}
-                      className={`p-3.5 rounded-xl border-2 transition ${
-                        totalFree > 0 ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                        <div>
-                          <p className="font-bold font-mono text-sm text-slate-900">
-                            Room {room.roomNumber}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
-                          </p>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          room.genderPreference === 'FEMALE'
-                            ? 'bg-pink-100 text-pink-800'
-                            : room.genderPreference === 'MALE'
-                            ? 'bg-blue-100 text-blue-800'
-                            : room.genderPreference === 'FAMILY'
-                            ? 'bg-purple-100 text-purple-800'
-                            : 'bg-amber-100 text-amber-900'
-                        }`}>
-                          {room.genderPreference === 'FEMALE' ? 'Ladies' : room.genderPreference === 'MALE' ? 'Gents' : room.genderPreference}
-                        </span>
-                      </div>
-
-                      {/* Room Available Counts */}
-                      <div className="py-2 flex items-center justify-between text-xs font-semibold text-slate-700">
-                        <span className="text-blue-700">🛏️ {availBeds} Beds Free</span>
-                        <span className="text-emerald-700">🧘 {availMats} Mats Free</span>
-                      </div>
-
-                      {/* Clickable Unit Badges for Manual Selection */}
-                      <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
-                        {room.units.map((unit) => {
-                          const isSelected = sketchSelectedUnits.some((u) => u.unitId === unit.id);
-                          const isAvailable = unit.isAvailable;
-                          const isBed = unit.type === 'BED';
-
-                          return (
-                            <button
-                              key={unit.id}
-                              type="button"
-                              disabled={!isAvailable}
-                              onClick={() => handleToggleSketchUnit(room, unit)}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1 ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-400'
-                                  : isAvailable
-                                  ? isBed
-                                    ? 'bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 cursor-pointer'
-                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 cursor-pointer'
-                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-40 line-through'
-                              }`}
-                            >
-                              <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
-                              {isSelected && <Check className="w-3 h-3 text-white" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* FIVE PROMINENT TOUCH-FRIENDLY ACTION BUTTONS                        */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-        {/* Action 1: New Registration & Room Assignment */}
-        <button
-          type="button"
-          onClick={() => setIsWalkInOpen(true)}
-          className="p-5 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-              <UserPlus className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
-              Action 1
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
-              New Registration &amp; Room Assignment
-            </h3>
-            <p className="text-xs text-blue-100 mt-1 leading-snug">
-              Register walk-in guests &amp; manually assign beds/mats across rooms
-            </p>
-          </div>
-        </button>
-
-        {/* Action 2: Check In */}
-        <button
-          type="button"
-          onClick={() => setQuickCheckInOpen(true)}
-          className="p-5 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
-              Action 2
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
-              Check In Guest
-            </h3>
-            <p className="text-xs text-emerald-100 mt-1 leading-snug">
-              Search participant, verify assigned room &amp; 1-click Check In
-            </p>
-          </div>
-        </button>
-
-        {/* Action 3: Change Room / Bed / Mat */}
-        <button
-          type="button"
-          onClick={() => {
-            // Find an active participant or open search
-            const firstStay = records.find((r) => r.participant && r.unit);
-            if (firstStay) {
-              handleLaunchChangeUnit(firstStay);
-            } else if (records[0]) {
-              handleLaunchChangeUnit(records[0]);
-            } else {
-              setQuickCheckInOpen(true);
-            }
-          }}
-          className="p-5 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-              <ArrowRightLeft className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
-              Action 3
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
-              Change Room / Bed / Mat
-            </h3>
-            <p className="text-xs text-amber-100 mt-1 leading-snug">
-              Switch Mat to Bed, Bed to Mat, or move across rooms safely
-            </p>
-          </div>
-        </button>
-
-        {/* Action 4: Check Out */}
-        <button
-          type="button"
-          onClick={handleOpenQuickCheckOut}
-          className="p-5 rounded-2xl bg-gradient-to-br from-rose-600 to-red-700 hover:from-rose-700 hover:to-red-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-              <LogOut className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
-              Action 4
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
-              Check Out Guest
-            </h3>
-            <p className="text-xs text-rose-100 mt-1 leading-snug">
-              Search staying guest &amp; release bed/mat back into inventory
-            </p>
-          </div>
-        </button>
-
-        {/* Action 5: Extend Stay */}
-        <button
-          type="button"
-          onClick={() => handleTabSwitch('CHECKED_IN')}
-          className="p-5 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-700 hover:from-cyan-700 hover:to-blue-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
-        >
-          <div className="flex items-center justify-between w-full">
-            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
-              <Calendar className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
-              Action 5
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
-              Extend Stay
-            </h3>
-            <p className="text-xs text-cyan-100 mt-1 leading-snug">
-              View currently staying guests &amp; extend checkout dates in 1 click
-            </p>
-          </div>
-        </button>
-      </div>
+    </div>
+  )}
 
       {/* ------------------------------------------------------------------ */}
       {/* QUEUE & RECEPTION ACTIVITY FEED (CLEAN, MINIMAL TABLE)             */}
@@ -7484,6 +7155,307 @@ export default function ReceptionPage() {
                     <span>Confirm &amp; Check Out ({groupCheckoutSelectedStayIds.length})</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* MODAL: LIVE ROOM AVAILABILITY CHECKER (FROM SKETCH)                */}
+      {/* ------------------------------------------------------------------ */}
+      {isRoomCheckerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-cyan-600 to-blue-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <Search className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black">Search Room Availability</h3>
+                  <p className="text-xs text-cyan-100">Live query by category, number of persons, and dates</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRoomCheckerOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <p className="text-xs text-slate-500">
+                Select category, number of persons, accommodation type, and stay dates to query compatible rooms
+              </p>
+
+              {/* The 3 Primary Controls from Handwritten Reference Sketch */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                {/* 1. Category Dropdown: Ladies, Gents, Family, Guest */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Category *
+                  </label>
+                  <select
+                    value={sketchCategory}
+                    onChange={(e) => setSketchCategory(e.target.value as GenderPreference)}
+                    className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
+                  >
+                    <option value="FEMALE">👩 Ladies (Female)</option>
+                    <option value="MALE">👦 Gents (Male)</option>
+                    <option value="FAMILY">👨‍👩‍👧 Family</option>
+                    <option value="GUEST">🌟 Guest</option>
+                  </select>
+                </div>
+
+                {/* 2. Number of Persons Dropdown: 1 to 10 + Custom */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    No. of Persons *
+                  </label>
+                  <select
+                    value={sketchPersons}
+                    onChange={(e) => setSketchPersons(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
+                  >
+                    <option value="1">1 Person</option>
+                    <option value="2">2 Persons</option>
+                    <option value="3">3 Persons</option>
+                    <option value="4">4 Persons</option>
+                    <option value="5">5 Persons</option>
+                    <option value="6">6 Persons</option>
+                    <option value="7">7 Persons</option>
+                    <option value="8">8 Persons</option>
+                    <option value="9">9 Persons</option>
+                    <option value="10">10 Persons</option>
+                    <option value="CUSTOM">Custom (More than 10)</option>
+                  </select>
+
+                  {sketchPersons === 'CUSTOM' && (
+                    <input
+                      type="number"
+                      min={11}
+                      max={500}
+                      value={sketchCustomPersons}
+                      onChange={(e) => setSketchCustomPersons(parseInt(e.target.value, 10) || 11)}
+                      placeholder="Enter exact count..."
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-bold"
+                    />
+                  )}
+                </div>
+
+                {/* 3. Accommodation Type Dropdown: Beds, Mats, Either */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Beds / Mats *
+                  </label>
+                  <select
+                    value={sketchUnitType}
+                    onChange={(e) => setSketchUnitType(e.target.value as any)}
+                    className="w-full px-3 py-2.5 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-bold focus:outline-none focus:border-blue-600"
+                  >
+                    <option value="ALL">Either (Beds or Mats)</option>
+                    <option value="BED">🛏️ Bed (Beds Only)</option>
+                    <option value="MAT">🧘 Mat (Mats Only)</option>
+                  </select>
+                </div>
+
+                {/* Check-In Date */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Check-In Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={sketchEntryDate}
+                    onChange={(e) => setSketchEntryDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-medium focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+
+                {/* Planned Check-Out Date */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Check-Out Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={sketchExitDate}
+                    onChange={(e) => setSketchExitDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border-2 border-slate-300 rounded-xl text-slate-900 font-medium focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+
+              {/* Prominent Search Availability Button (The Rectangle from Sketch) */}
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleSearchRoomAvailability}
+                  disabled={sketchSearching}
+                  className="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-black shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 active:scale-98"
+                >
+                  {sketchSearching ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Checking Real-Time Inventory...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      <span>Search Availability</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* ------------------------------------------------------------------ */}
+              {/* SEARCH RESULTS: MATCHING AVAILABLE ROOMS & MANUAL UNIT SELECTION   */}
+              {/* ------------------------------------------------------------------ */}
+              {sketchHasSearched && (
+                <div className="pt-4 border-t border-slate-200 space-y-3 animate-in fade-in">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                      <span>Matching Rooms for {sketchCategory} ({sketchAvailableRooms.length} Rooms Found)</span>
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      Tap individual bed/mat badges to select units across rooms for <strong>{targetRequiredPersons} person(s)</strong>
+                    </span>
+                  </div>
+
+                  {/* Selection Banner if units are clicked */}
+                  {sketchSelectedUnits.length > 0 && (
+                    <div className="p-3.5 bg-blue-50 border-2 border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          Selected {sketchSelectedUnits.length} of {targetRequiredPersons} Person(s) Required:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {sketchSelectedUnits.map((u) => (
+                            <span
+                              key={u.unitId}
+                              className="px-2 py-0.5 rounded bg-white border border-blue-300 text-blue-900 font-mono font-bold"
+                            >
+                              Room {u.roomNumber} &bull; {u.unitType} {u.unitNumber}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setSketchSelectedUnits([])}
+                          className="px-3 py-1.5 text-slate-600 hover:text-slate-900 font-semibold"
+                        >
+                          Clear Selection
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleProceedToAllocateFromSearch}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition active:scale-95"
+                        >
+                          Proceed to Allocate Selected Units &rarr;
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rooms Cards List */}
+                  {sketchAvailableRooms.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 border border-slate-200 rounded-xl text-slate-500 text-xs">
+                      No available rooms found for the selected category, dates, or unit type.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {sketchAvailableRooms.map((room) => {
+                        const availBeds = room.availableBeds ?? room.units.filter((u) => u.isAvailable && u.type === 'BED').length;
+                        const availMats = room.availableMats ?? room.units.filter((u) => u.isAvailable && u.type === 'MAT').length;
+                        const totalFree = availBeds + availMats;
+
+                        return (
+                          <div
+                            key={room.id}
+                            className={`p-3.5 rounded-xl border-2 transition ${
+                              totalFree > 0 ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                              <div>
+                                <p className="font-bold font-mono text-sm text-slate-900">
+                                  Room {room.roomNumber}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
+                                </p>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                room.genderPreference === 'FEMALE'
+                                  ? 'bg-pink-100 text-pink-800'
+                                  : room.genderPreference === 'MALE'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : room.genderPreference === 'FAMILY'
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : 'bg-amber-100 text-amber-900'
+                              }`}>
+                                {room.genderPreference === 'FEMALE' ? 'Ladies' : room.genderPreference === 'MALE' ? 'Gents' : room.genderPreference}
+                              </span>
+                            </div>
+
+                            {/* Room Available Counts */}
+                            <div className="py-2 flex items-center justify-between text-xs font-semibold text-slate-700">
+                              <span className="text-blue-700">🛏️ {availBeds} Beds Free</span>
+                              <span className="text-emerald-700">🧘 {availMats} Mats Free</span>
+                            </div>
+
+                            {/* Clickable Unit Badges for Manual Selection */}
+                            <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-1.5">
+                              {room.units.map((unit) => {
+                                const isSelected = sketchSelectedUnits.some((u) => u.unitId === unit.id);
+                                const isAvailable = unit.isAvailable;
+                                const isBed = unit.type === 'BED';
+
+                                return (
+                                  <button
+                                    key={unit.id}
+                                    type="button"
+                                    disabled={!isAvailable}
+                                    onClick={() => handleToggleSketchUnit(room, unit)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1 ${
+                                      isSelected
+                                        ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-400'
+                                        : isAvailable
+                                        ? isBed
+                                          ? 'bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 cursor-pointer'
+                                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 cursor-pointer'
+                                        : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-40 line-through'
+                                    }`}
+                                  >
+                                    <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
+                                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsRoomCheckerOpen(false)}
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition"
+              >
+                Close
               </button>
             </div>
           </div>
