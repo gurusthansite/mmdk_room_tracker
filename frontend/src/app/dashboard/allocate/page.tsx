@@ -848,29 +848,69 @@ export default function AllocatePage() {
     }
   };
 
-  // Dynamic buildings from rooms
+  // Dynamic buildings from rooms (scoped to selected hotel if chosen)
   const availableBuildings = useMemo(() => {
+    let scoped = [...availabilityRooms];
+    if (filterHotelId !== 'ALL') {
+      const selectedHotel = hotels.find((h) => h.id === filterHotelId);
+      scoped = scoped.filter((r) => {
+        if (r.hotelId === filterHotelId) return true;
+        if (selectedHotel) {
+          const targetName = selectedHotel.name.toLowerCase();
+          if (r.hotelName && r.hotelName.toLowerCase() === targetName) return true;
+          if (r.building && r.building.toLowerCase() === targetName) return true;
+          if (r.hotel?.name && r.hotel.name.toLowerCase() === targetName) return true;
+        }
+        return false;
+      });
+    }
     const set = new Set<string>();
-    availabilityRooms.forEach((r) => {
+    scoped.forEach((r) => {
       if (r.building?.trim()) set.add(r.building.trim());
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [availabilityRooms]);
+  }, [availabilityRooms, filterHotelId, hotels]);
 
-  // Live Metrics for Reception Desk Summary
+  // Reset filterBuilding if it's no longer in availableBuildings
+  useEffect(() => {
+    if (filterBuilding !== 'ALL' && !availableBuildings.includes(filterBuilding)) {
+      setFilterBuilding('ALL');
+    }
+  }, [availableBuildings, filterBuilding]);
+
+  // Live Metrics for Reception Desk Summary (scoped to selected Hotel / Building)
   const liveMetrics = useMemo(() => {
-    const totalRooms = availabilityRooms.length;
-    const totalUnits = availabilityRooms.reduce((acc, r) => acc + (r.totalUnitsInRoom || 0), 0);
-    const availableUnits = availabilityRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0);
+    let scoped = [...availabilityRooms];
+    if (filterHotelId !== 'ALL') {
+      const selectedHotel = hotels.find((h) => h.id === filterHotelId);
+      scoped = scoped.filter((r) => {
+        if (r.hotelId === filterHotelId) return true;
+        if (selectedHotel) {
+          const targetName = selectedHotel.name.toLowerCase();
+          if (r.hotelName && r.hotelName.toLowerCase() === targetName) return true;
+          if (r.building && r.building.toLowerCase() === targetName) return true;
+          if (r.hotel?.name && r.hotel.name.toLowerCase() === targetName) return true;
+        }
+        return false;
+      });
+    }
+    if (filterBuilding !== 'ALL') {
+      const bLower = filterBuilding.toLowerCase();
+      scoped = scoped.filter((r) => (r.building && r.building.toLowerCase() === bLower) || (r.hotelName && r.hotelName.toLowerCase() === bLower));
+    }
+
+    const totalRooms = scoped.length;
+    const totalUnits = scoped.reduce((acc, r) => acc + (r.totalUnitsInRoom || 0), 0);
+    const availableUnits = scoped.reduce((acc, r) => acc + (r.availableCount || 0), 0);
     const bookedUnits = totalUnits - availableUnits;
     const occupancyRate = totalUnits > 0 ? Math.round((bookedUnits / totalUnits) * 100) : 0;
-    const availableBeds = availabilityRooms.reduce((acc, r) => acc + (r.availableBeds || 0), 0);
-    const availableMats = availabilityRooms.reduce((acc, r) => acc + (r.availableMats || 0), 0);
+    const availableBeds = scoped.reduce((acc, r) => acc + (r.availableBeds || 0), 0);
+    const availableMats = scoped.reduce((acc, r) => acc + (r.availableMats || 0), 0);
 
-    const maleRooms = availabilityRooms.filter((r) => r.genderPreference === 'MALE');
-    const femaleRooms = availabilityRooms.filter((r) => r.genderPreference === 'FEMALE');
-    const familyRooms = availabilityRooms.filter((r) => r.genderPreference === 'FAMILY');
-    const guestRooms = availabilityRooms.filter((r) => r.genderPreference === 'GUEST');
+    const maleRooms = scoped.filter((r) => r.genderPreference === 'MALE');
+    const femaleRooms = scoped.filter((r) => r.genderPreference === 'FEMALE');
+    const familyRooms = scoped.filter((r) => r.genderPreference === 'FAMILY');
+    const guestRooms = scoped.filter((r) => r.genderPreference === 'GUEST');
 
     return {
       totalRooms,
@@ -905,44 +945,128 @@ export default function AllocatePage() {
         availableUnits: guestRooms.reduce((acc, r) => acc + (r.availableCount || 0), 0),
       },
     };
-  }, [availabilityRooms]);
+  }, [availabilityRooms, filterHotelId, filterBuilding, hotels]);
+
+  // Pre-calculate counts for each Booking % filter pill within current property scope
+  const occupancyCounts = useMemo(() => {
+    let baseList = [...availabilityRooms];
+    if (filterHotelId !== 'ALL') {
+      const selectedHotel = hotels.find((h) => h.id === filterHotelId);
+      baseList = baseList.filter((r) => {
+        if (r.hotelId === filterHotelId) return true;
+        if (selectedHotel) {
+          const targetName = selectedHotel.name.toLowerCase();
+          if (r.hotelName && r.hotelName.toLowerCase() === targetName) return true;
+          if (r.building && r.building.toLowerCase() === targetName) return true;
+          if (r.hotel?.name && r.hotel.name.toLowerCase() === targetName) return true;
+        }
+        return false;
+      });
+    }
+    if (filterBuilding !== 'ALL') {
+      const bLower = filterBuilding.toLowerCase();
+      baseList = baseList.filter((r) => (r.building && r.building.toLowerCase() === bLower) || (r.hotelName && r.hotelName.toLowerCase() === bLower));
+    }
+    if (filterRoomCategory !== 'ALL') {
+      baseList = baseList.filter((r) => r.genderPreference === filterRoomCategory);
+    }
+
+    const counts = {
+      ALL: baseList.length,
+      '0': 0,
+      '25': 0,
+      '50': 0,
+      '75': 0,
+      '100': 0,
+    };
+
+    baseList.forEach((r) => {
+      const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
+      if (r.availableCount === r.totalUnitsInRoom && r.totalUnitsInRoom > 0) {
+        counts['0']++;
+      } else if (r.availableCount === 0 || occ >= 90) {
+        counts['100']++;
+      } else if (occ <= 25) {
+        counts['25']++;
+      } else if (occ <= 50) {
+        counts['50']++;
+      } else {
+        counts['75']++;
+      }
+    });
+
+    return counts;
+  }, [availabilityRooms, filterHotelId, filterBuilding, filterRoomCategory, hotels]);
 
   // Filtered and Naturally Sorted Rooms
   const displayedRooms = useMemo(() => {
     let list = [...availabilityRooms];
 
-    // Search room number
+    // 1. Hotel / Facility Filter (instant client-side filtering)
+    if (filterHotelId !== 'ALL') {
+      const selectedHotel = hotels.find((h) => h.id === filterHotelId);
+      list = list.filter((r) => {
+        if (r.hotelId === filterHotelId) return true;
+        if (selectedHotel) {
+          const targetName = selectedHotel.name.toLowerCase();
+          if (r.hotelName && r.hotelName.toLowerCase() === targetName) return true;
+          if (r.building && r.building.toLowerCase() === targetName) return true;
+          if (r.hotel?.name && r.hotel.name.toLowerCase() === targetName) return true;
+        }
+        return false;
+      });
+    }
+
+    // 2. Building / Block Filter
+    if (filterBuilding !== 'ALL') {
+      const bLower = filterBuilding.toLowerCase();
+      list = list.filter((r) => (r.building && r.building.toLowerCase() === bLower) || (r.hotelName && r.hotelName.toLowerCase() === bLower));
+    }
+
+    // 3. Room Category Filter (Male, Female, Family, Guest)
+    if (filterRoomCategory !== 'ALL') {
+      list = list.filter((r) => r.genderPreference === filterRoomCategory);
+    }
+
+    // 4. Unit Type Filter (Beds vs Mats)
+    if (filterUnitType === 'BED') {
+      list = list.filter((r) => (r.availableBeds || 0) > 0 || (r.totalBeds || 0) > 0);
+    } else if (filterUnitType === 'MAT') {
+      list = list.filter((r) => (r.availableMats || 0) > 0 || (r.totalMats || 0) > 0);
+    }
+
+    // 5. Search room number
     if (roomSearchQuery.trim()) {
       const q = roomSearchQuery.trim().toLowerCase();
       list = list.filter((r) => r.roomNumber.toLowerCase().includes(q));
     }
 
-    // Occupancy Percentage Filter
+    // 6. Occupancy Percentage Filter
     if (occupancyFilter !== 'ALL') {
       if (occupancyFilter === '0') {
-        // 0% Booked (100% Free)
+        // 0% Booked (100% Free - no occupied units)
         list = list.filter((r) => r.availableCount === r.totalUnitsInRoom && r.totalUnitsInRoom > 0);
       } else if (occupancyFilter === '25') {
-        // <= 25% Booked
+        // Partially booked up to 25%
         list = list.filter((r) => {
           const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-          return occ <= 25;
+          return occ > 0 && occ <= 25;
         });
       } else if (occupancyFilter === '50') {
-        // <= 50% Booked
+        // 26% to 50% Booked
         list = list.filter((r) => {
           const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-          return occ <= 50;
+          return occ > 25 && occ <= 50;
         });
       } else if (occupancyFilter === '75') {
-        // <= 75% Booked
+        // 51% to 75% Booked
         list = list.filter((r) => {
           const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-          return occ <= 75;
+          return occ > 50 && occ <= 75;
         });
       } else if (occupancyFilter === '100') {
-        // 100% Full / Occupied
-        list = list.filter((r) => r.availableCount === 0);
+        // 100% Full / Occupied (or >= 76% full with no free beds)
+        list = list.filter((r) => r.availableCount === 0 || (r.occupancyPercentage ?? 0) >= 90);
       }
     }
 
@@ -950,7 +1074,7 @@ export default function AllocatePage() {
     list.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
 
     return list;
-  }, [availabilityRooms, roomSearchQuery, occupancyFilter]);
+  }, [availabilityRooms, filterHotelId, filterBuilding, filterRoomCategory, filterUnitType, roomSearchQuery, occupancyFilter, hotels]);
 
   // Bulk select / deselect all free beds in a specific room
   const handleSelectAllInRoom = (room: AvailabilityRoom) => {
@@ -1621,12 +1745,12 @@ export default function AllocatePage() {
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   {[
-                    { key: 'ALL', label: 'All Rooms', activeCls: 'bg-slate-900 text-white border-slate-900' },
-                    { key: '0', label: '🟢 0% Booked (100% Free)', activeCls: 'bg-emerald-600 text-white border-emerald-600' },
-                    { key: '25', label: '≤ 25% Booked', activeCls: 'bg-blue-600 text-white border-blue-600' },
-                    { key: '50', label: '≤ 50% Booked', activeCls: 'bg-indigo-600 text-white border-indigo-600' },
-                    { key: '75', label: '≤ 75% Booked', activeCls: 'bg-amber-600 text-white border-amber-600' },
-                    { key: '100', label: '🔴 100% Full', activeCls: 'bg-rose-600 text-white border-rose-600' },
+                    { key: 'ALL', label: 'All Rooms', count: occupancyCounts.ALL, activeCls: 'bg-slate-900 text-white border-slate-900' },
+                    { key: '0', label: '🟢 0% Booked (100% Free)', count: occupancyCounts['0'], activeCls: 'bg-emerald-600 text-white border-emerald-600' },
+                    { key: '25', label: '≤ 25% Booked', count: occupancyCounts['25'], activeCls: 'bg-blue-600 text-white border-blue-600' },
+                    { key: '50', label: '≤ 50% Booked', count: occupancyCounts['50'], activeCls: 'bg-indigo-600 text-white border-indigo-600' },
+                    { key: '75', label: '≤ 75% Booked', count: occupancyCounts['75'], activeCls: 'bg-amber-600 text-white border-amber-600' },
+                    { key: '100', label: '🔴 100% Full', count: occupancyCounts['100'], activeCls: 'bg-rose-600 text-white border-rose-600' },
                   ].map((pct) => {
                     const isActive = occupancyFilter === pct.key;
                     return (
@@ -1634,13 +1758,18 @@ export default function AllocatePage() {
                         key={pct.key}
                         type="button"
                         onClick={() => setOccupancyFilter(pct.key as any)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
                           isActive
                             ? `${pct.activeCls} shadow-xs font-bold`
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                         }`}
                       >
-                        {pct.label}
+                        <span>{pct.label}</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                          isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {pct.count}
+                        </span>
                       </button>
                     );
                   })}

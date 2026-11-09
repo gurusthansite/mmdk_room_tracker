@@ -65,25 +65,26 @@ export const cancelAllocationSchema = z.object({
  * Queries inventory and identifies which beds/mats are free vs occupied.
  */
 export async function checkAvailability(req: Request, res: Response) {
-  const parsed = checkAvailabilitySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid availability parameters',
-      errors: parsed.error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
-    });
-  }
+  try {
+    const parsed = checkAvailabilitySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid availability parameters',
+        errors: parsed.error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
+      });
+    }
 
-  const { entryDate, exitDate, genderCategory, unitType, building, roomCategory, excludeAllocationId, hotelId } = parsed.data;
-  const start = new Date(entryDate);
-  const end = new Date(exitDate);
+    const { entryDate, exitDate, genderCategory, unitType, building, roomCategory, excludeAllocationId, hotelId } = parsed.data;
+    const start = new Date(entryDate);
+    const end = new Date(exitDate);
 
-  if (start >= end) {
-    return res.status(400).json({
-      success: false,
-      message: 'Exit date must be strictly after entry date',
-    });
-  }
+    if (start >= end) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exit date must be strictly after entry date',
+      });
+    }
 
   // 1. Fetch active conflicting allocation items in range [start, end)
   const conflictingAllocations = await prisma.allocationItem.findMany({
@@ -243,32 +244,38 @@ export async function checkAvailability(req: Request, res: Response) {
   // 3. Query all rooms and units matching filters
   const roomWhere: any = {};
   if (hotelId && hotelId !== 'ALL') {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hotelId);
     let targetHotel: { id: string; name: string } | null = null;
     try {
-      targetHotel = await prisma.hotel.findFirst({
-        where: {
-          OR: [
-            { id: hotelId },
-            { name: { equals: hotelId, mode: 'insensitive' } },
-          ],
-        },
-        select: { id: true, name: true },
-      });
-    } catch {
-      // silent
+      if (isUuid) {
+        targetHotel = await prisma.hotel.findUnique({
+          where: { id: hotelId },
+          select: { id: true, name: true },
+        });
+      }
+      if (!targetHotel) {
+        targetHotel = await prisma.hotel.findFirst({
+          where: { name: { equals: hotelId, mode: 'insensitive' } },
+          select: { id: true, name: true },
+        });
+      }
+    } catch (e) {
+      console.warn('Error querying target hotel:', e);
     }
 
-    if (targetHotel) {
-      roomWhere.OR = [
-        { hotelId: targetHotel.id },
-        { building: { equals: targetHotel.name, mode: 'insensitive' } },
-        { hotel: { name: { equals: targetHotel.name, mode: 'insensitive' } } },
-      ];
-    } else {
-      roomWhere.OR = [
-        { hotelId: hotelId },
-        { building: { equals: hotelId, mode: 'insensitive' } },
-      ];
+    const matchedHotelId = targetHotel ? targetHotel.id : (isUuid ? hotelId : undefined);
+    const matchedHotelName = targetHotel ? targetHotel.name : hotelId;
+
+    const orConditions: any[] = [];
+    if (matchedHotelId) {
+      orConditions.push({ hotelId: matchedHotelId });
+    }
+    if (matchedHotelName) {
+      orConditions.push({ building: { equals: matchedHotelName, mode: 'insensitive' } });
+    }
+
+    if (orConditions.length > 0) {
+      roomWhere.OR = orConditions;
     }
   }
   if (building && building !== 'ALL') {
@@ -421,6 +428,13 @@ export async function checkAvailability(req: Request, res: Response) {
       rooms: roomAvailability,
     },
   });
+  } catch (err: any) {
+    console.error('Error in checkAvailability:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Error checking unit availability',
+    });
+  }
 }
 
 /**

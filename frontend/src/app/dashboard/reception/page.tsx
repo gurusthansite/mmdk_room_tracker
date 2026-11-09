@@ -1084,17 +1084,27 @@ export default function ReceptionPage() {
   };
 
   const handleSelectUnitForMember = (memberKey: string, unit: any, room: any) => {
-    setMemberTargetMap((prev) => ({
-      ...prev,
-      [memberKey]: {
+    setMemberTargetMap((prev) => {
+      const next = { ...prev };
+      // If this unit was assigned to another member in the group, clear it first
+      Object.keys(next).forEach((k) => {
+        if (next[k]?.unitId === unit.id) {
+          delete next[k];
+        }
+      });
+      next[memberKey] = {
         unitId: unit.id,
         unitNumber: unit.unitNumber,
         unitType: unit.type,
         roomId: room.id,
         roomNumber: room.roomNumber,
         hotelName: room.hotel?.name || room.hotelName || 'Main Property',
-      },
-    }));
+      };
+      return next;
+    });
+
+    // Ensure member is in selectedMemberKeys
+    setSelectedMemberKeys((prev) => (prev.includes(memberKey) ? prev : [...prev, memberKey]));
 
     // If multiple members are selected, automatically advance active assigning key to next unassigned member
     const unassigned = selectedMemberKeys.filter((k) => k !== memberKey && !memberTargetMap[k]);
@@ -1140,16 +1150,10 @@ export default function ReceptionPage() {
   };
 
   const handleExecuteBatchChangeUnits = async () => {
-    if (selectedMemberKeys.length === 0) {
-      setErrorMessage('Please select at least one guest/member to transfer.');
-      return;
-    }
-
-    // Verify all selected members have a destination target
-    const missing = selectedMemberKeys.filter((k) => !memberTargetMap[k]);
-    if (missing.length > 0) {
-      const missingNames = missing.map((k) => changeMembers.find((m) => m.key === k)?.fullName || 'Member').join(', ');
-      setErrorMessage(`Please select a destination bed/mat for: ${missingNames}`);
+    // Only transfer members who actually have a destination unit chosen
+    const mappedKeys = Object.keys(memberTargetMap).filter((k) => Boolean(memberTargetMap[k]?.unitId));
+    if (mappedKeys.length === 0) {
+      setErrorMessage('Please select a destination bed/mat for at least one guest.');
       return;
     }
 
@@ -1161,7 +1165,7 @@ export default function ReceptionPage() {
     setActionLoading(true);
     setErrorMessage(null);
     try {
-      const assignments = selectedMemberKeys.map((key) => {
+      const assignments = mappedKeys.map((key) => {
         const m = changeMembers.find((mem) => mem.key === key);
         const target = memberTargetMap[key];
         return {
@@ -4189,11 +4193,29 @@ export default function ReceptionPage() {
 
                           {target ? (
                             <div className="flex items-center justify-between p-1.5 bg-emerald-50 rounded border border-emerald-200 text-emerald-900 font-semibold text-[11px]">
-                              <span className="text-[10px] uppercase font-bold text-emerald-700">Target:</span>
-                              <span className="font-mono font-bold text-right">
-                                Room {target.roomNumber} &bull; {target.unitType} {target.unitNumber}
+                              <div>
+                                <span className="text-[10px] uppercase font-bold text-emerald-700 mr-1">Target:</span>
+                                <span className="font-mono font-bold">
+                                  Room {target.roomNumber} &bull; {target.unitType} {target.unitNumber}
+                                </span>
                                 <span className="text-[9px] font-sans font-normal text-emerald-700 block">({target.hotelName})</span>
-                              </span>
+                              </div>
+                              <button
+                                type="button"
+                                title="Remove target assignment"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMemberTargetMap((prev) => {
+                                    const copy = { ...prev };
+                                    delete copy[member.key];
+                                    return copy;
+                                  });
+                                  setActiveAssigningKey(member.key);
+                                }}
+                                className="px-1.5 py-0.5 text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded transition shrink-0 ml-1.5"
+                              >
+                                ✕ Clear
+                              </button>
                             </div>
                           ) : isSelected ? (
                             <p className={`text-[10px] font-medium text-right ${isActiveTarget ? 'text-amber-800 font-bold' : 'text-slate-400 italic'}`}>
@@ -4629,8 +4651,14 @@ export default function ReceptionPage() {
 
             {/* Modal Footer */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-              <span className="text-xs text-slate-500 font-medium">
-                {Object.keys(memberTargetMap).length} of {selectedMemberKeys.length} selected member(s) mapped
+              <span className="text-xs text-slate-600 font-medium">
+                {Object.keys(memberTargetMap).length === selectedMemberKeys.length ? (
+                  <span className="text-emerald-700 font-bold">✓ All {selectedMemberKeys.length} selected guest(s) mapped</span>
+                ) : (
+                  <span>
+                    <strong className="text-amber-800">{Object.keys(memberTargetMap).length}</strong> guest(s) mapped &bull; <span className="text-slate-500 italic">only mapped guests will be transferred</span>
+                  </span>
+                )}
               </span>
 
               <div className="flex items-center gap-2">
