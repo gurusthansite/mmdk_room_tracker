@@ -150,7 +150,7 @@ async function runBulkRoomVerification() {
   );
 
   // Verify units inside DB for room 21
-  const room21 = await prisma.room.findUnique({
+  const room21 = await prisma.room.findFirst({
     where: { roomNumber: `${batch1Prefix}21` },
     include: { units: true },
   });

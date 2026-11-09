@@ -372,14 +372,18 @@ export async function createRoom(req: Request, res: Response) {
     return createBulkRooms(req, res);
   }
 
-  // Check unique roomNumber
-  const existing = await prisma.room.findUnique({
-    where: { roomNumber },
+  // Check unique roomNumber within target property/building
+  const existing = await prisma.room.findFirst({
+    where: {
+      roomNumber,
+      hotelId: parsed.data.hotelId || null,
+      ...(building ? { building: { equals: building, mode: 'insensitive' } } : {}),
+    },
   });
   if (existing) {
     return res.status(409).json({
       success: false,
-      message: `Room with number '${roomNumber}' already exists.`,
+      message: `Room with number '${roomNumber}' already exists in this property/building.`,
     });
   }
 
@@ -598,9 +602,12 @@ export async function createBulkRooms(req: Request, res: Response) {
       });
     }
 
-    // Check database for existing rooms
+    // Check database for existing rooms within the target hotel property
     const existingRooms = await prisma.room.findMany({
-      where: { roomNumber: { in: allRoomNumbers } },
+      where: {
+        roomNumber: { in: allRoomNumbers },
+        hotelId: hotelId || null,
+      },
       select: { roomNumber: true },
     });
 
@@ -608,7 +615,7 @@ export async function createBulkRooms(req: Request, res: Response) {
       const dupes = existingRooms.map((r) => r.roomNumber).join(', ');
       return res.status(409).json({
         success: false,
-        message: `The following room number(s) already exist: ${dupes}. Please remove or change them.`,
+        message: `The following room number(s) already exist in this property: ${dupes}. Please remove or change them.`,
       });
     }
 

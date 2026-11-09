@@ -62,7 +62,7 @@ async function runDatabaseVerification() {
     }
     assert(roomUniqueFailed, 'Duplicate roomNumber rejection (Prisma P2002)');
 
-    const r101 = await prisma.room.findUniqueOrThrow({ where: { roomNumber: 'R-101' } });
+    const r101 = await prisma.room.findFirstOrThrow({ where: { roomNumber: 'R-101' } });
     let unitUniqueFailed = false;
     try {
       await prisma.accommodationUnit.create({

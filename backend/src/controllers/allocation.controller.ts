@@ -243,7 +243,33 @@ export async function checkAvailability(req: Request, res: Response) {
   // 3. Query all rooms and units matching filters
   const roomWhere: any = {};
   if (hotelId && hotelId !== 'ALL') {
-    roomWhere.hotelId = hotelId;
+    let targetHotel: { id: string; name: string } | null = null;
+    try {
+      targetHotel = await prisma.hotel.findFirst({
+        where: {
+          OR: [
+            { id: hotelId },
+            { name: { equals: hotelId, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, name: true },
+      });
+    } catch {
+      // silent
+    }
+
+    if (targetHotel) {
+      roomWhere.OR = [
+        { hotelId: targetHotel.id },
+        { building: { equals: targetHotel.name, mode: 'insensitive' } },
+        { hotel: { name: { equals: targetHotel.name, mode: 'insensitive' } } },
+      ];
+    } else {
+      roomWhere.OR = [
+        { hotelId: hotelId },
+        { building: { equals: hotelId, mode: 'insensitive' } },
+      ];
+    }
   }
   if (building && building !== 'ALL') {
     roomWhere.building = { equals: building, mode: 'insensitive' };
@@ -321,13 +347,16 @@ export async function checkAvailability(req: Request, res: Response) {
     const occupiedCount = totalUnitsCount - roomAvailableCount;
     const occupancyPercentage = totalUnitsCount > 0 ? Math.round((occupiedCount / totalUnitsCount) * 100) : 0;
 
+    const resolvedHotelName = room.hotel?.name || room.building || 'Main Property';
+    const resolvedBuilding = room.building || room.hotel?.name || 'Main Block';
+
     return {
       id: room.id,
       hotelId: room.hotelId,
-      hotelName: room.hotel?.name || null,
-      hotel: room.hotel,
+      hotelName: resolvedHotelName,
+      hotel: room.hotel ? { ...room.hotel, name: resolvedHotelName } : { id: room.hotelId || 'main', name: resolvedHotelName },
       roomNumber: room.roomNumber,
-      building: room.building,
+      building: resolvedBuilding,
       floor: room.floor,
       genderPreference: room.genderPreference,
       status: room.status,

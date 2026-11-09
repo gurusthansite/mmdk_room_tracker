@@ -147,7 +147,7 @@ async function runHardeningVerificationSuite() {
     });
 
     // Pre-cleanup in case of previous aborted runs
-    const existingRoom = await prisma.room.findUnique({ where: { roomNumber: 'R-P11-TEST' } });
+    const existingRoom = await prisma.room.findFirst({ where: { roomNumber: 'R-P11-TEST' } });
     if (existingRoom) {
       await prisma.stayRecord.deleteMany({ where: { unit: { roomId: existingRoom.id } } });
       await prisma.allocationItem.deleteMany({ where: { unit: { roomId: existingRoom.id } } });

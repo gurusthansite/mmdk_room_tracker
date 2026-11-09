@@ -2799,6 +2799,9 @@ export default function ReceptionPage() {
                         {isStay ? (
                           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 font-mono font-bold">
                             <span>Room {item.unit?.room?.roomNumber}</span>
+                            <span className="text-[10px] font-sans font-medium text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+                              {item.unit?.room?.hotel?.name || item.unit?.room?.building || 'Main'}
+                            </span>
                             <span>&bull;</span>
                             <span>{item.unit?.type === 'MAT' ? '🧘 Mat' : '🛏️ Bed'} {item.unit?.unitNumber}</span>
                           </div>
@@ -2810,6 +2813,9 @@ export default function ReceptionPage() {
                                 className="px-2.5 py-1 rounded-lg text-xs bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold inline-flex items-center gap-1"
                               >
                                 <span>Room {it.unit?.room?.roomNumber}</span>
+                                <span className="text-[9px] font-sans font-semibold text-slate-500 bg-white px-1 py-0.5 rounded border border-slate-200">
+                                  {it.unit?.room?.hotel?.name || it.unit?.room?.building || 'Main'}
+                                </span>
                                 <span>&bull;</span>
                                 <span>{it.unit?.type === 'MAT' ? 'Mat' : 'Bed'} {it.unit?.unitNumber}</span>
                               </span>
@@ -4235,12 +4241,37 @@ export default function ReceptionPage() {
                       }}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="ALL">All Hotels / Properties ({hotels.length})</option>
-                      {hotels.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.name}
-                        </option>
-                      ))}
+                      <option value="ALL">All Hotels &amp; Buildings</option>
+                      {/* Available Hotel & Building Options */}
+                      {(() => {
+                        const propertyOptions: Array<{ value: string; label: string }> = [];
+                        const seen = new Set<string>();
+
+                        hotels.forEach((h) => {
+                          seen.add(h.id.toLowerCase());
+                          seen.add(h.name.toLowerCase());
+                          propertyOptions.push({ value: h.id, label: h.name });
+                        });
+
+                        changeAvailableRooms.forEach((r) => {
+                          const b = (r.building || '').trim();
+                          if (b && !seen.has(b.toLowerCase())) {
+                            seen.add(b.toLowerCase());
+                            propertyOptions.push({ value: b, label: b });
+                          }
+                          const hn = (r.hotelName || '').trim();
+                          if (hn && !seen.has(hn.toLowerCase())) {
+                            seen.add(hn.toLowerCase());
+                            propertyOptions.push({ value: hn, label: hn });
+                          }
+                        });
+
+                        return propertyOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ));
+                      })()}
                     </select>
                   </div>
 
@@ -4326,15 +4357,180 @@ export default function ReceptionPage() {
               </div>
 
               {/* LIVE AVAILABLE ROOMS GRID */}
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {(() => {
+                  // Instant Client-Side Filter: Matches Hotel ID, Hotel Name, or Building string
                   const filteredAvailableRooms = changeAvailableRooms.filter((r) => {
-                    if (!changeRoomSearchQuery.trim()) return true;
-                    return (
-                      r.roomNumber.toLowerCase().includes(changeRoomSearchQuery.toLowerCase().trim()) ||
-                      (r.hotelName && r.hotelName.toLowerCase().includes(changeRoomSearchQuery.toLowerCase().trim()))
-                    );
+                    // 1. Hotel / Property Filter
+                    if (changeHotelFilter !== 'ALL') {
+                      const selectedHotel = hotels.find((h) => h.id === changeHotelFilter);
+                      const targetName = (selectedHotel?.name || changeHotelFilter).toLowerCase().trim();
+                      const matchesId = r.hotelId === changeHotelFilter;
+                      const matchesHotelName = (r.hotelName || '').toLowerCase().trim().includes(targetName) ||
+                                               (r.hotel?.name || '').toLowerCase().trim().includes(targetName);
+                      const matchesBuilding = (r.building || '').toLowerCase().trim().includes(targetName);
+                      if (!matchesId && !matchesHotelName && !matchesBuilding) return false;
+                    }
+
+                    // 2. Room Category Filter
+                    if (changeCategoryFilter !== 'ANY') {
+                      if (r.genderPreference !== changeCategoryFilter) return false;
+                    }
+
+                    // 3. Unit Type Filter
+                    if (changeTypeFilter === 'BED') {
+                      const availBeds = r.availableBeds ?? r.units?.filter((u: any) => u.isAvailable && u.type === 'BED').length;
+                      if (availBeds <= 0) return false;
+                    } else if (changeTypeFilter === 'MAT') {
+                      const availMats = r.availableMats ?? r.units?.filter((u: any) => u.isAvailable && u.type === 'MAT').length;
+                      if (availMats <= 0) return false;
+                    }
+
+                    // 4. Room Search Box (matches room number, building, or hotel name)
+                    if (changeRoomSearchQuery.trim()) {
+                      const q = changeRoomSearchQuery.toLowerCase().trim();
+                      const matchesNum = r.roomNumber.toLowerCase().includes(q);
+                      const matchesH = (r.hotelName || '').toLowerCase().includes(q);
+                      const matchesB = (r.building || '').toLowerCase().includes(q);
+                      if (!matchesNum && !matchesH && !matchesB) return false;
+                    }
+
+                    return true;
                   });
+
+                  // Group rooms by Property / Building when viewing multiple properties
+                  const groupedByProperty: Record<string, any[]> = {};
+                  filteredAvailableRooms.forEach((r) => {
+                    const key = r.hotelName || r.building || r.hotel?.name || 'Main Property';
+                    if (!groupedByProperty[key]) groupedByProperty[key] = [];
+                    groupedByProperty[key].push(r);
+                  });
+                  const propertyKeys = Object.keys(groupedByProperty);
+
+                  const renderRoomCard = (room: any) => {
+                    const availBeds = room.availableBeds ?? room.units.filter((u: any) => u.isAvailable && u.type === 'BED').length;
+                    const availMats = room.availableMats ?? room.units.filter((u: any) => u.isAvailable && u.type === 'MAT').length;
+                    const hasAvailableUnits = (room.availableCount ?? 0) > 0 || (availBeds + availMats) > 0;
+
+                    return (
+                      <div
+                        key={room.id}
+                        className={`p-3 rounded-xl border transition ${
+                          hasAvailableUnits ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-sm text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                              Room {room.roomNumber}
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1">
+                              <Building className="w-3 h-3 text-blue-700" />
+                              <span>{room.hotelName || room.hotel?.name || room.building || 'Main Property'}</span>
+                            </span>
+                            {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
+                              <span className="text-[11px] text-slate-600 font-semibold">
+                                &bull; {room.building}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              &bull; Floor {room.floor ?? '-'}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
+                              {room.genderPreference}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span className="font-semibold text-blue-700">
+                              🛏️ {availBeds} Bed(s) Free
+                            </span>
+                            <span className="text-slate-300">&bull;</span>
+                            <span className="font-semibold text-emerald-700">
+                              🧘 {availMats} Mat(s) Free
+                            </span>
+
+                            {/* Quick Auto-Assign Selected Members Button */}
+                            {selectedMemberKeys.length > 1 && (availBeds + availMats) >= selectedMemberKeys.length && (
+                              <button
+                                type="button"
+                                onClick={() => handleAutoAssignRoomToSelected(room)}
+                                className="ml-2 px-2 py-1 text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition shadow-2xs"
+                                title={`Assign ${selectedMemberKeys.length} selected members to Room ${room.roomNumber}`}
+                              >
+                                Assign Selected Here
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Unit Buttons */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {room.units.map((unit: any) => {
+                            // Check if this unit is currently assigned to one of our party members
+                            const currentPartyMember = changeMembers.find((m) => m.currentUnitId === unit.id);
+                            const isCurrent = Boolean(currentPartyMember);
+
+                            // Check if this unit is selected as target for one of our members
+                            const assignedToMemberKey = Object.keys(memberTargetMap).find(
+                              (k) => memberTargetMap[k].unitId === unit.id
+                            );
+                            const assignedMember = assignedToMemberKey
+                              ? changeMembers.find((m) => m.key === assignedToMemberKey)
+                              : null;
+                            const isTargetSelected = Boolean(assignedMember);
+
+                            const isAvailable = unit.isAvailable && !isCurrent;
+                            const isBed = unit.type === 'BED';
+
+                            return (
+                              <button
+                                key={unit.id}
+                                type="button"
+                                disabled={!isAvailable && !isTargetSelected}
+                                onClick={() => {
+                                  if (isTargetSelected) {
+                                    // unassign
+                                    const copy = { ...memberTargetMap };
+                                    delete copy[assignedToMemberKey!];
+                                    setMemberTargetMap(copy);
+                                  } else if (activeAssigningKey) {
+                                    handleSelectUnitForMember(activeAssigningKey, unit, room);
+                                  } else if (selectedMemberKeys.length > 0) {
+                                    handleSelectUnitForMember(selectedMemberKeys[0], unit, room);
+                                  } else {
+                                    setErrorMessage('Please select a member above first.');
+                                  }
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 ${
+                                  isTargetSelected
+                                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
+                                    : isCurrent
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300 cursor-not-allowed opacity-75'
+                                    : isAvailable
+                                    ? isBed
+                                      ? 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer'
+                                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 cursor-pointer'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
+                                }`}
+                              >
+                                <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
+                                {isTargetSelected && (
+                                  <span className="text-[10px] font-sans font-medium text-emerald-100 flex items-center gap-0.5">
+                                    <Check className="w-3 h-3" />
+                                    {assignedMember?.fullName.split(' ')[0]}
+                                  </span>
+                                )}
+                                {isCurrent && (
+                                  <span className="text-[9px] font-sans font-normal">(Current)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  };
 
                   return (
                     <>
@@ -4357,126 +4553,29 @@ export default function ReceptionPage() {
                             <p>No available units found matching the selected hotel, room number, or category filters.</p>
                           )}
                         </div>
-                      ) : (
-                        <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                          {filteredAvailableRooms.map((room) => {
-                            const availBeds = room.availableBeds ?? room.units.filter((u: any) => u.isAvailable && u.type === 'BED').length;
-                            const availMats = room.availableMats ?? room.units.filter((u: any) => u.isAvailable && u.type === 'MAT').length;
-                            const hasAvailableUnits = (room.availableCount ?? 0) > 0 || (availBeds + availMats) > 0;
-
-                            return (
-                              <div
-                                key={room.id}
-                                className={`p-3 rounded-xl border transition ${
-                                  hasAvailableUnits ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200 opacity-60'
-                                }`}
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-mono font-bold text-sm text-slate-900">
-                                      Room {room.roomNumber}
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                                      🏨 {room.hotelName || room.hotel?.name || 'Main Property'}
-                                    </span>
-                                    <span className="text-[11px] text-slate-500">
-                                      {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
-                                    </span>
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                                      {room.genderPreference}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 text-[11px]">
-                                    <span className="font-semibold text-blue-700">
-                                      🛏️ {availBeds} Bed(s) Free
-                                    </span>
-                                    <span className="text-slate-300">&bull;</span>
-                                    <span className="font-semibold text-emerald-700">
-                                      🧘 {availMats} Mat(s) Free
-                                    </span>
-
-                                    {/* Quick Auto-Assign Selected Members Button */}
-                                    {selectedMemberKeys.length > 1 && (availBeds + availMats) >= selectedMemberKeys.length && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAutoAssignRoomToSelected(room)}
-                                        className="ml-2 px-2 py-1 text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition shadow-2xs"
-                                        title={`Assign ${selectedMemberKeys.length} selected members to Room ${room.roomNumber}`}
-                                      >
-                                        Assign Selected Here
-                                      </button>
-                                    )}
-                                  </div>
+                      ) : propertyKeys.length > 1 && changeHotelFilter === 'ALL' ? (
+                        // Grouped property sections when viewing All Buildings / Hotels
+                        <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                          {propertyKeys.map((propName) => (
+                            <div key={propName} className="space-y-2">
+                              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-800 sticky top-0 z-10 backdrop-blur-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <Building className="w-4 h-4 text-blue-600" />
+                                  <span>{propName}</span>
                                 </div>
-
-                                {/* Unit Buttons */}
-                                <div className="flex flex-wrap gap-1.5">
-                                  {room.units.map((unit: any) => {
-                                    // Check if this unit is currently assigned to one of our party members
-                                    const currentPartyMember = changeMembers.find((m) => m.currentUnitId === unit.id);
-                                    const isCurrent = Boolean(currentPartyMember);
-
-                                    // Check if this unit is selected as target for one of our members
-                                    const assignedToMemberKey = Object.keys(memberTargetMap).find(
-                                      (k) => memberTargetMap[k].unitId === unit.id
-                                    );
-                                    const assignedMember = assignedToMemberKey
-                                      ? changeMembers.find((m) => m.key === assignedToMemberKey)
-                                      : null;
-                                    const isTargetSelected = Boolean(assignedMember);
-
-                                    const isAvailable = unit.isAvailable && !isCurrent;
-                                    const isBed = unit.type === 'BED';
-
-                                    return (
-                                      <button
-                                        key={unit.id}
-                                        type="button"
-                                        disabled={!isAvailable && !isTargetSelected}
-                                        onClick={() => {
-                                          if (isTargetSelected) {
-                                            // unassign
-                                            const copy = { ...memberTargetMap };
-                                            delete copy[assignedToMemberKey!];
-                                            setMemberTargetMap(copy);
-                                          } else if (activeAssigningKey) {
-                                            handleSelectUnitForMember(activeAssigningKey, unit, room);
-                                          } else if (selectedMemberKeys.length > 0) {
-                                            handleSelectUnitForMember(selectedMemberKeys[0], unit, room);
-                                          } else {
-                                            setErrorMessage('Please select a member above first.');
-                                          }
-                                        }}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 ${
-                                          isTargetSelected
-                                            ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                                            : isCurrent
-                                            ? 'bg-amber-100 text-amber-900 border border-amber-300 cursor-not-allowed opacity-75'
-                                            : isAvailable
-                                            ? isBed
-                                              ? 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer'
-                                              : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 cursor-pointer'
-                                            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
-                                        }`}
-                                      >
-                                        <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
-                                        {isTargetSelected && (
-                                          <span className="text-[10px] font-sans font-medium text-emerald-100 flex items-center gap-0.5">
-                                            <Check className="w-3 h-3" />
-                                            {assignedMember?.fullName.split(' ')[0]}
-                                          </span>
-                                        )}
-                                        {isCurrent && (
-                                          <span className="text-[9px] font-sans font-normal">(Current)</span>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                                <span className="text-[11px] font-medium text-slate-500">
+                                  {groupedByProperty[propName].length} room{groupedByProperty[propName].length !== 1 ? 's' : ''} available
+                                </span>
                               </div>
-                            );
-                          })}
+                              <div className="space-y-2.5">
+                                {groupedByProperty[propName].map(renderRoomCard)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                          {filteredAvailableRooms.map(renderRoomCard)}
                         </div>
                       )}
                     </>
