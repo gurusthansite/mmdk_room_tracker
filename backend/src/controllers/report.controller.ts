@@ -8,6 +8,7 @@ import { generateOperationalPdfReport } from '../utils/pdfGenerator';
 const dateRangeSchema = z.object({
   startDate: z.string().trim().optional(),
   endDate: z.string().trim().optional(),
+  hotelId: z.string().trim().optional(),
 });
 
 function getDateRangeFilter(startDate?: string, endDate?: string) {
@@ -31,8 +32,9 @@ function getDateRangeFilter(startDate?: string, endDate?: string) {
 // ----------------------------------------------------------------------------
 export async function getReportOverview(req: Request, res: Response) {
   try {
-    const { startDate, endDate } = dateRangeSchema.parse(req.query);
+    const { startDate, endDate, hotelId } = dateRangeSchema.parse(req.query);
     const dateFilter = getDateRangeFilter(startDate, endDate);
+    const hasHotelFilter = Boolean(hotelId && hotelId !== 'ALL');
 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -52,8 +54,14 @@ export async function getReportOverview(req: Request, res: Response) {
     ] = await Promise.all([
       // All rooms with units and occupancy
       prisma.room.findMany({
-        where: { status: RoomStatus.ACTIVE },
+        where: {
+          status: RoomStatus.ACTIVE,
+          ...(hasHotelFilter ? { hotelId } : {}),
+        },
         include: {
+          hotel: {
+            select: { id: true, name: true },
+          },
           units: {
             where: { status: UnitStatus.ACTIVE },
             include: {
@@ -63,7 +71,6 @@ export async function getReportOverview(req: Request, res: Response) {
               allocationItems: {
                 where: {
                   status: { in: [AllocationItemStatus.TENTATIVE, AllocationItemStatus.CONFIRMED] },
-                  entryDate: { lte: endOfToday },
                   exitDate: { gte: startOfToday },
                 },
               },
@@ -75,6 +82,7 @@ export async function getReportOverview(req: Request, res: Response) {
 
       // All accommodation units
       prisma.accommodationUnit.findMany({
+        where: hasHotelFilter ? { room: { hotelId } } : undefined,
         select: {
           id: true,
           type: true,
@@ -88,6 +96,7 @@ export async function getReportOverview(req: Request, res: Response) {
         where: {
           status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
           actualCheckOut: null,
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
         include: {
           unit: {
@@ -125,6 +134,7 @@ export async function getReportOverview(req: Request, res: Response) {
         where: {
           isArchived: false,
           entryDate: { gte: startOfToday, lte: endOfToday },
+          ...(hasHotelFilter ? { items: { some: { unit: { room: { hotelId } } } } } : {}),
         },
       }),
 
@@ -132,6 +142,7 @@ export async function getReportOverview(req: Request, res: Response) {
       prisma.stayRecord.count({
         where: {
           actualCheckIn: { gte: startOfToday, lte: endOfToday },
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
       }),
 
@@ -140,6 +151,7 @@ export async function getReportOverview(req: Request, res: Response) {
         where: {
           isArchived: false,
           exitDate: { gte: startOfToday, lte: endOfToday },
+          ...(hasHotelFilter ? { items: { some: { unit: { room: { hotelId } } } } } : {}),
         },
       }),
 
@@ -148,6 +160,7 @@ export async function getReportOverview(req: Request, res: Response) {
         where: {
           actualCheckOut: { gte: startOfToday, lte: endOfToday },
           status: StayStatus.CHECKED_OUT,
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
       }),
 
@@ -156,6 +169,7 @@ export async function getReportOverview(req: Request, res: Response) {
         where: {
           previousStayRecordId: { not: null },
           createdAt: { gte: startOfToday, lte: endOfToday },
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
       }),
     ]);
@@ -171,11 +185,6 @@ export async function getReportOverview(req: Request, res: Response) {
     const occupiedUnits = activeStays.length;
     const occupiedBeds = activeStays.filter((s) => s.unit.type === 'BED').length;
     const occupiedMats = activeStays.filter((s) => s.unit.type === 'MAT').length;
-
-    const availableUnits = Math.max(0, totalCapacity - occupiedUnits - maintenanceUnits);
-    const overallOccupancyRate = totalCapacity > 0 ? Math.round((occupiedUnits / totalCapacity) * 100) : 0;
-    const bedOccupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
-    const matOccupancyRate = totalMats > 0 ? Math.round((occupiedMats / totalMats) * 100) : 0;
 
     // Registrations status distribution
     const regStatusDistribution: Record<string, number> = {
@@ -217,21 +226,23 @@ export async function getReportOverview(req: Request, res: Response) {
       let roomHasFreeUnit = false;
 
       r.units?.forEach((u: any) => {
-        const isBooked = (u.stayRecords?.length || 0) > 0 || (u.allocationItems?.length || 0) > 0;
-        if (isBooked) {
+        const hasStay = (u.stayRecords?.length || 0) > 0;
+        const hasAlloc = (u.allocationItems?.length || 0) > 0;
+        const isBookedOrOccupied = hasStay || hasAlloc;
+        if (isBookedOrOccupied) {
           totalBookedUnitsCount++;
         }
 
         if (categoryStats[cat]) {
           if (u.type === 'BED') {
             categoryStats[cat].totalBeds++;
-            if (!isBooked) {
+            if (!isBookedOrOccupied) {
               categoryStats[cat].availableBeds++;
               roomHasFreeUnit = true;
             }
           } else {
             categoryStats[cat].totalMats++;
-            if (!isBooked) {
+            if (!isBookedOrOccupied) {
               categoryStats[cat].availableMats++;
               roomHasFreeUnit = true;
             }
@@ -248,12 +259,24 @@ export async function getReportOverview(req: Request, res: Response) {
       c.availableUnits = c.availableBeds + c.availableMats;
     });
 
+    // Effective active units (both checked in and reserved under allocations)
+    const reservedUnits = Math.max(0, totalBookedUnitsCount - occupiedUnits);
+    const totalActiveUnits = Math.min(totalCapacity, occupiedUnits + reservedUnits);
+    const availableUnits = Math.max(0, totalCapacity - totalActiveUnits - maintenanceUnits);
+    const overallOccupancyRate = totalCapacity > 0 ? Math.round((totalActiveUnits / totalCapacity) * 100) : 0;
+    const checkedInRate = totalCapacity > 0 ? Math.round((occupiedUnits / totalCapacity) * 100) : 0;
+    const reservedRate = totalCapacity > 0 ? Math.round((reservedUnits / totalCapacity) * 100) : 0;
+    const bedOccupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
+    const matOccupancyRate = totalMats > 0 ? Math.round((occupiedMats / totalMats) * 100) : 0;
+
     const roomWiseSummary = rooms.map((r: any) => {
       const bookedUnits = r.units?.filter((u: any) => (u.stayRecords?.length || 0) > 0 || (u.allocationItems?.length || 0) > 0) || [];
       const freeBeds = r.units?.filter((u: any) => u.type === 'BED' && (u.stayRecords?.length || 0) === 0 && (u.allocationItems?.length || 0) === 0) || [];
       const freeMats = r.units?.filter((u: any) => u.type === 'MAT' && (u.stayRecords?.length || 0) === 0 && (u.allocationItems?.length || 0) === 0) || [];
       return {
         roomId: r.id,
+        hotelId: r.hotelId,
+        hotelName: r.hotel?.name || 'Main Property',
         roomNumber: r.roomNumber,
         building: r.building,
         floor: r.floor,
@@ -265,6 +288,9 @@ export async function getReportOverview(req: Request, res: Response) {
         availableUnits: freeBeds.length + freeMats.length,
       };
     });
+
+    // Natural numeric sorting for room breakdown
+    roomWiseSummary.sort((a: any, b: any) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
 
     return res.json({
       success: true,
@@ -281,6 +307,7 @@ export async function getReportOverview(req: Request, res: Response) {
         dateRange: {
           startDate: startDate || 'All Time',
           endDate: endDate || 'Current',
+          hotelId: hotelId || 'ALL',
         },
         capacity: {
           totalRooms,
@@ -291,9 +318,13 @@ export async function getReportOverview(req: Request, res: Response) {
           occupiedUnits,
           occupiedBeds,
           occupiedMats,
+          reservedUnits,
+          totalActiveUnits,
           availableUnits,
           maintenanceUnits,
           overallOccupancyRate,
+          checkedInRate,
+          reservedRate,
           bedOccupancyRate,
           matOccupancyRate,
           genderOccupancy,
@@ -328,9 +359,17 @@ export async function getReportOverview(req: Request, res: Response) {
 // ----------------------------------------------------------------------------
 export async function getOccupancyReport(req: Request, res: Response) {
   try {
+    const { startDate, endDate, hotelId } = dateRangeSchema.parse(req.query);
+    const hasHotelFilter = Boolean(hotelId && hotelId !== 'ALL');
+
     const rooms = await prisma.room.findMany({
-      orderBy: { roomNumber: 'asc' },
+      where: {
+        ...(hasHotelFilter ? { hotelId } : {}),
+      },
       include: {
+        hotel: {
+          select: { id: true, name: true },
+        },
         units: {
           orderBy: { unitNumber: 'asc' },
           include: {
@@ -348,28 +387,58 @@ export async function getOccupancyReport(req: Request, res: Response) {
                 },
               },
             },
+            allocationItems: {
+              where: {
+                status: { in: [AllocationItemStatus.TENTATIVE, AllocationItemStatus.CONFIRMED] },
+              },
+              include: {
+                allocation: {
+                  select: {
+                    id: true,
+                    allocationNumber: true,
+                    registration: {
+                      select: {
+                        primaryName: true,
+                      },
+                    },
+                  },
+                },
+                participant: {
+                  select: {
+                    fullName: true,
+                    gender: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
     });
 
-    // Building & Floor group summaries
+    // Building & Floor group summaries (Grouped primarily by Hotel Property!)
     const buildingMap: Record<string, any> = {};
 
     const roomDetails = rooms.map((room) => {
-      const bldg = room.building || 'Main Block';
-      const flr = `Floor ${room.floor ?? 0}`;
-      const groupKey = `${bldg} - ${flr}`;
+      const hotelName = room.hotel?.name || 'Main Property';
+      const bldg = room.building || null;
+      const flr = room.floor !== null && room.floor !== undefined ? `Floor ${room.floor}` : null;
+      const groupKey = bldg ? `${hotelName} • ${bldg}${flr ? ` (${flr})` : ''}` : (flr ? `${hotelName} • ${flr}` : hotelName);
 
       if (!buildingMap[groupKey]) {
         buildingMap[groupKey] = {
-          building: bldg,
+          groupTitle: groupKey,
+          hotelId: room.hotelId || 'DEFAULT',
+          hotelName,
+          building: bldg || hotelName,
           floor: room.floor ?? 0,
           totalRooms: 0,
           totalBeds: 0,
           totalMats: 0,
           totalCapacity: 0,
           occupiedUnits: 0,
+          reservedUnits: 0,
+          totalActiveUnits: 0,
           maintenanceUnits: 0,
         };
       }
@@ -379,26 +448,41 @@ export async function getOccupancyReport(req: Request, res: Response) {
       const roomCapacity = room.units.length;
 
       let roomOccupied = 0;
+      let roomReserved = 0;
       let roomMaintenance = 0;
       const occupants: any[] = [];
 
       for (const unit of room.units) {
         if (unit.status === UnitStatus.MAINTENANCE) {
           roomMaintenance++;
-        }
-        if (unit.stayRecords.length > 0) {
-          roomOccupied += unit.stayRecords.length;
+        } else if (unit.stayRecords.length > 0) {
+          roomOccupied++;
           unit.stayRecords.forEach((stay) => {
             occupants.push({
               unitNumber: unit.unitNumber,
               type: unit.type,
-              fullName: stay.participant.fullName,
-              gender: stay.participant.gender,
+              status: 'CHECKED_IN',
+              fullName: stay.participant?.fullName || 'Occupant',
+              gender: stay.participant?.gender,
               actualCheckIn: stay.actualCheckIn,
+            });
+          });
+        } else if (unit.allocationItems.length > 0) {
+          roomReserved++;
+          unit.allocationItems.forEach((item) => {
+            occupants.push({
+              unitNumber: unit.unitNumber,
+              type: unit.type,
+              status: 'RESERVED',
+              fullName: item.participant?.fullName || item.allocation?.registration?.primaryName || 'Reserved Guest',
+              gender: item.participant?.gender,
+              actualCheckIn: null,
             });
           });
         }
       }
+
+      const roomTotalActive = roomOccupied + roomReserved;
 
       // Add to building group
       buildingMap[groupKey].totalRooms += 1;
@@ -406,12 +490,16 @@ export async function getOccupancyReport(req: Request, res: Response) {
       buildingMap[groupKey].totalMats += roomMats;
       buildingMap[groupKey].totalCapacity += roomCapacity;
       buildingMap[groupKey].occupiedUnits += roomOccupied;
+      buildingMap[groupKey].reservedUnits += roomReserved;
+      buildingMap[groupKey].totalActiveUnits += roomTotalActive;
       buildingMap[groupKey].maintenanceUnits += roomMaintenance;
 
-      const utilization = roomCapacity > 0 ? Math.round((roomOccupied / roomCapacity) * 100) : 0;
+      const utilization = roomCapacity > 0 ? Math.round((roomTotalActive / roomCapacity) * 100) : 0;
 
       return {
         id: room.id,
+        hotelId: room.hotelId,
+        hotelName,
         roomNumber: room.roomNumber,
         building: room.building,
         floor: room.floor,
@@ -421,17 +509,22 @@ export async function getOccupancyReport(req: Request, res: Response) {
         totalMats: roomMats,
         totalCapacity: roomCapacity,
         occupiedUnits: roomOccupied,
+        reservedUnits: roomReserved,
+        totalActiveUnits: roomTotalActive,
         maintenanceUnits: roomMaintenance,
-        availableUnits: Math.max(0, roomCapacity - roomOccupied - roomMaintenance),
+        availableUnits: Math.max(0, roomCapacity - roomTotalActive - roomMaintenance),
         utilizationRate: utilization,
         occupants,
       };
     });
 
+    // Natural numeric sorting for room details (e.g. 1, 2, 5, 49, 104, 105)
+    roomDetails.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+
     const buildingBreakdown = Object.values(buildingMap).map((grp: any) => ({
       ...grp,
-      availableUnits: Math.max(0, grp.totalCapacity - grp.occupiedUnits - grp.maintenanceUnits),
-      utilizationRate: grp.totalCapacity > 0 ? Math.round((grp.occupiedUnits / grp.totalCapacity) * 100) : 0,
+      availableUnits: Math.max(0, grp.totalCapacity - grp.totalActiveUnits - grp.maintenanceUnits),
+      utilizationRate: grp.totalCapacity > 0 ? Math.round((grp.totalActiveUnits / grp.totalCapacity) * 100) : 0,
     }));
 
     return res.json({
@@ -658,7 +751,8 @@ export async function getParticipantReport(req: Request, res: Response) {
 // ----------------------------------------------------------------------------
 export async function getDailyOperationalReport(req: Request, res: Response) {
   try {
-    const { startDate, endDate } = dateRangeSchema.parse(req.query);
+    const { startDate, endDate, hotelId } = dateRangeSchema.parse(req.query);
+    const hasHotelFilter = Boolean(hotelId && hotelId !== 'ALL');
 
     // Default to last 14 days if not supplied
     const end = endDate ? new Date(endDate) : new Date();
@@ -677,6 +771,7 @@ export async function getDailyOperationalReport(req: Request, res: Response) {
             { entryDate: { gte: start, lte: end } },
             { exitDate: { gte: start, lte: end } },
           ],
+          ...(hasHotelFilter ? { items: { some: { unit: { room: { hotelId } } } } } : {}),
         },
         select: {
           entryDate: true,
@@ -691,6 +786,7 @@ export async function getDailyOperationalReport(req: Request, res: Response) {
             { actualCheckOut: { gte: start, lte: end } },
             { previousStayRecordId: { not: null }, createdAt: { gte: start, lte: end } },
           ],
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
         select: {
           actualCheckIn: true,
@@ -763,22 +859,29 @@ export async function getDailyOperationalReport(req: Request, res: Response) {
 // ----------------------------------------------------------------------------
 export async function exportReportExcel(req: Request, res: Response) {
   try {
+    const { startDate, endDate, hotelId } = dateRangeSchema.parse(req.query);
+    const hasHotelFilter = Boolean(hotelId && hotelId !== 'ALL');
+
     const [rooms, units, activeStays, registrations, dailyStats] = await Promise.all([
       // Rooms & Capacity
       prisma.room.findMany({
-        orderBy: { roomNumber: 'asc' },
+        where: hasHotelFilter ? { hotelId } : {},
         include: {
+          hotel: { select: { id: true, name: true } },
           units: true,
         },
       }),
 
-      prisma.accommodationUnit.findMany(),
+      prisma.accommodationUnit.findMany({
+        where: hasHotelFilter ? { room: { hotelId } } : {},
+      }),
 
       // Active stays
       prisma.stayRecord.findMany({
         where: {
           status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
           actualCheckOut: null,
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
         include: {
           participant: {
@@ -836,11 +939,14 @@ export async function exportReportExcel(req: Request, res: Response) {
       }),
     ]);
 
+    rooms.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+
     const workbook = XLSX.utils.book_new();
 
     // SHEET 1: Executive KPI Summary
     const summaryRows = [
       { Metric: 'Report Generation Timestamp', Value: new Date().toISOString() },
+      { Metric: 'Hotel Property Scope', Value: hasHotelFilter ? 'Filtered Property' : 'All Properties' },
       { Metric: 'Total Configured Rooms', Value: rooms.length },
       { Metric: 'Total Accommodation Capacity (Beds + Mats)', Value: units.length },
       { Metric: 'Total Beds', Value: units.filter((u) => u.type === 'BED').length },
@@ -868,8 +974,9 @@ export async function exportReportExcel(req: Request, res: Response) {
 
       return {
         Index: i + 1,
+        Hotel: (r as any).hotel?.name || 'Main Property',
         'Room Number': r.roomNumber,
-        Building: r.building || 'Main Block',
+        Building: r.building || (r as any).hotel?.name || 'Main Block',
         Floor: r.floor ?? 0,
         Status: r.status,
         'Gender Preference': r.genderPreference,
@@ -883,6 +990,7 @@ export async function exportReportExcel(req: Request, res: Response) {
     const roomSheet = XLSX.utils.json_to_sheet(roomRows);
     roomSheet['!cols'] = [
       { wch: 8 },
+      { wch: 22 },
       { wch: 16 },
       { wch: 18 },
       { wch: 10 },
@@ -978,16 +1086,22 @@ export async function exportReportExcel(req: Request, res: Response) {
 // ----------------------------------------------------------------------------
 export async function exportReportPdf(req: Request, res: Response) {
   try {
+    const { startDate, endDate, hotelId } = dateRangeSchema.parse(req.query);
+    const hasHotelFilter = Boolean(hotelId && hotelId !== 'ALL');
+
     const [rooms, units, activeStays, registrations] = await Promise.all([
       prisma.room.findMany({
-        orderBy: { roomNumber: 'asc' },
-        include: { units: true },
+        where: hasHotelFilter ? { hotelId } : {},
+        include: { hotel: { select: { id: true, name: true } }, units: true },
       }),
-      prisma.accommodationUnit.findMany(),
+      prisma.accommodationUnit.findMany({
+        where: hasHotelFilter ? { room: { hotelId } } : {},
+      }),
       prisma.stayRecord.findMany({
         where: {
           status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
           actualCheckOut: null,
+          ...(hasHotelFilter ? { unit: { room: { hotelId } } } : {}),
         },
       }),
       prisma.registration.findMany({ where: { isArchived: false } }),
@@ -1001,7 +1115,7 @@ export async function exportReportPdf(req: Request, res: Response) {
     // Building table rows
     const buildingMap: Record<string, { bldg: string; cap: number; occ: number }> = {};
     for (const r of rooms) {
-      const bldg = r.building || 'Main Block';
+      const bldg = (r as any).hotel?.name || r.building || 'Main Block';
       if (!buildingMap[bldg]) buildingMap[bldg] = { bldg, cap: 0, occ: 0 };
       buildingMap[bldg].cap += r.units.length;
       buildingMap[bldg].occ += activeStays.filter((s) => s.unitId && r.units.some((u) => u.id === s.unitId)).length;

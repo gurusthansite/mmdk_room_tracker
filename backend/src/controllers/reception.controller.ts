@@ -82,8 +82,22 @@ export const transferStaySchema = z.object({
 });
 
 export const changeAssignmentSchema = z.object({
-  participantId: z.string().uuid('Invalid participant ID'),
+  participantId: z.string().uuid('Invalid participant ID').optional().nullable(),
+  allocationItemId: z.string().uuid('Invalid allocation item ID').optional().nullable(),
+  stayRecordId: z.string().uuid('Invalid stay record ID').optional().nullable(),
   newUnitId: z.string().uuid('Invalid new unit ID'),
+  reason: z.string().trim().min(2, 'Change reason must be at least 2 characters'),
+});
+
+export const batchChangeAssignmentSchema = z.object({
+  assignments: z.array(
+    z.object({
+      participantId: z.string().uuid('Invalid participant ID').optional().nullable(),
+      allocationItemId: z.string().uuid('Invalid allocation item ID').optional().nullable(),
+      stayRecordId: z.string().uuid('Invalid stay record ID').optional().nullable(),
+      newUnitId: z.string().uuid('Invalid new unit ID'),
+    })
+  ).min(1, 'At least one assignment required'),
   reason: z.string().trim().min(2, 'Change reason must be at least 2 characters'),
 });
 
@@ -873,9 +887,9 @@ export async function getReceptionDossier(req: Request, res: Response): Promise<
             stayRecords: {
               orderBy: { actualCheckIn: 'desc' },
               include: {
-                unit: { include: { room: true } },
+                unit: { include: { room: { include: { hotel: true } } } },
                 previousStayRecord: {
-                  include: { unit: { include: { room: true } } },
+                  include: { unit: { include: { room: { include: { hotel: true } } } } },
                 },
                 recordedBy: {
                   select: { id: true, name: true, role: true },
@@ -894,7 +908,7 @@ export async function getReceptionDossier(req: Request, res: Response): Promise<
             items: {
               include: {
                 unit: {
-                  include: { room: true },
+                  include: { room: { include: { hotel: true } } },
                 },
                 participant: true,
               },
@@ -2040,284 +2054,18 @@ export async function extendStay(req: Request, res: Response): Promise<void> {
 export async function changeAssignment(req: Request, res: Response): Promise<void> {
   try {
     const validated = changeAssignmentSchema.parse(req.body);
-
-    const participant = await prisma.participant.findUnique({
-      where: { id: validated.participantId, isArchived: false },
-      include: {
-        registration: {
-          include: {
-            allocations: {
-              where: { isArchived: false, status: { not: AllocationStatus.CANCELLED } },
-              orderBy: { createdAt: 'desc' },
-              include: {
-                items: {
-                  where: { status: { not: AllocationItemStatus.CANCELLED } },
-                  include: { unit: { include: { room: true } } },
-                },
-              },
-            },
-          },
+    req.body = {
+      assignments: [
+        {
+          participantId: validated.participantId,
+          allocationItemId: validated.allocationItemId,
+          stayRecordId: validated.stayRecordId,
+          newUnitId: validated.newUnitId,
         },
-        stayRecords: {
-          where: { status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] } },
-          include: { unit: { include: { room: true } } },
-          orderBy: { actualCheckIn: 'desc' },
-          take: 1,
-        },
-        allocationItems: {
-          where: { status: { not: AllocationItemStatus.CANCELLED } },
-          include: { unit: { include: { room: true } } },
-          take: 1,
-        },
-      },
-    });
-
-    if (!participant) {
-      res.status(404).json({
-        success: false,
-        message: 'Participant not found or archived.',
-      });
-      return;
-    }
-
-    const newUnit = await prisma.accommodationUnit.findUnique({
-      where: { id: validated.newUnitId },
-      include: { room: true },
-    });
-
-    if (!newUnit) {
-      res.status(404).json({
-        success: false,
-        message: 'Destination accommodation unit not found.',
-      });
-      return;
-    }
-
-    if (newUnit.status !== 'ACTIVE' || newUnit.room.status !== 'ACTIVE') {
-      res.status(400).json({
-        success: false,
-        message: 'Destination unit or room is inactive or under maintenance.',
-      });
-      return;
-    }
-
-    // Category and Gender Compatibility Check
-    const gender = participant.gender;
-    if (gender === Gender.MALE && newUnit.room.genderPreference === 'FEMALE') {
-      res.status(400).json({
-        success: false,
-        message: 'Male participant cannot be assigned to a female-only room.',
-      });
-      return;
-    }
-    if (gender === Gender.FEMALE && newUnit.room.genderPreference === 'MALE') {
-      res.status(400).json({
-        success: false,
-        message: 'Female participant cannot be assigned to a male-only room.',
-      });
-      return;
-    }
-    if (gender === Gender.MALE && newUnit.genderCategory === 'FEMALE') {
-      res.status(400).json({
-        success: false,
-        message: 'Male participant cannot be assigned to a female-designated bed/mat.',
-      });
-      return;
-    }
-    if (gender === Gender.FEMALE && newUnit.genderCategory === 'MALE') {
-      res.status(400).json({
-        success: false,
-        message: 'Female participant cannot be assigned to a male-designated bed/mat.',
-      });
-      return;
-    }
-
-    // Verify destination unit is not currently occupied by someone else
-    const activeOccupant = await prisma.stayRecord.findFirst({
-      where: {
-        unitId: validated.newUnitId,
-        status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
-      },
-      include: { participant: true },
-    });
-
-    if (activeOccupant && activeOccupant.participantId !== participant.id) {
-      res.status(400).json({
-        success: false,
-        message: `Unit ${newUnit.unitNumber} in Room ${newUnit.room.roomNumber} is currently occupied by ${activeOccupant.participant.fullName}.`,
-      });
-      return;
-    }
-
-    const activeStay = participant.stayRecords[0] || null;
-
-    if (activeStay) {
-      // POST-CHECK-IN TRANSFER
-      if (activeStay.unitId === validated.newUnitId) {
-        res.status(400).json({
-          success: false,
-          message: 'Participant is already occupying this exact unit.',
-        });
-        return;
-      }
-
-      const result = await prisma.$transaction(async (tx) => {
-        // Conclude old stay
-        const previousStay = await tx.stayRecord.update({
-          where: { id: activeStay.id },
-          data: {
-            actualCheckOut: new Date(),
-            status: StayStatus.TRANSFERRED,
-            transferReason: validated.reason,
-          },
-        });
-
-        // Update allocation item if applicable
-        if (activeStay.allocationItemId) {
-          await tx.allocationItem.update({
-            where: { id: activeStay.allocationItemId },
-            data: { unitId: validated.newUnitId },
-          });
-        }
-
-        // Create new active stay record
-        const newStay = await tx.stayRecord.create({
-          data: {
-            registrationId: participant.registrationId,
-            participantId: participant.id,
-            unitId: validated.newUnitId,
-            allocationItemId: activeStay.allocationItemId,
-            actualCheckIn: new Date(),
-            status: StayStatus.CHECKED_IN,
-            previousStayRecordId: activeStay.id,
-            transferReason: validated.reason,
-            recordedById: req.user!.id,
-          },
-          include: {
-            unit: { include: { room: true } },
-          },
-        });
-
-        // Audit Trail
-        await tx.activityLog.create({
-          data: {
-            entityType: 'STAY_RECORD',
-            entityId: newStay.id,
-            action: ActionType.TRANSFER,
-            userId: req.user?.id,
-            details: {
-              participantId: participant.id,
-              participantName: participant.fullName,
-              fromRoom: activeStay.unit.room.roomNumber,
-              fromUnit: activeStay.unit.unitNumber,
-              fromType: activeStay.unit.type,
-              toRoom: newUnit.room.roomNumber,
-              toUnit: newUnit.unitNumber,
-              toType: newUnit.type,
-              reason: validated.reason,
-              stage: 'POST_CHECK_IN',
-            },
-          },
-        });
-
-        return { previousStay, newStay };
-      });
-
-      res.status(200).json({
-        success: true,
-        message: `Successfully moved ${participant.fullName} from Room ${activeStay.unit.room.roomNumber} (${activeStay.unit.type} ${activeStay.unit.unitNumber}) to Room ${newUnit.room.roomNumber} (${newUnit.type} ${newUnit.unitNumber}).`,
-        data: result,
-      });
-      return;
-    }
-
-    // PRE-CHECK-IN ASSIGNMENT CHANGE
-    const activeAllocation = participant.registration.allocations[0] || null;
-    let allocItem: any = participant.allocationItems[0] || null;
-
-    if (!allocItem && activeAllocation) {
-      allocItem = activeAllocation.items.find(
-        (i) => !i.participantId || i.participantId === participant.id
-      ) || null;
-    }
-
-    if (!allocItem && !activeAllocation) {
-      res.status(400).json({
-        success: false,
-        message: 'No active reservation or allocation found for this participant.',
-      });
-      return;
-    }
-
-    if (allocItem && allocItem.unitId === validated.newUnitId) {
-      res.status(400).json({
-        success: false,
-        message: 'Participant is already assigned to this unit.',
-      });
-      return;
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      let updatedItem;
-      const oldRoomNumber = allocItem?.unit.room.roomNumber || 'None';
-      const oldUnitNumber = allocItem?.unit.unitNumber || 'None';
-      const oldType = allocItem?.unit.type || 'None';
-
-      if (allocItem) {
-        updatedItem = await tx.allocationItem.update({
-          where: { id: allocItem.id },
-          data: {
-            unitId: validated.newUnitId,
-            participantId: participant.id,
-            notes: validated.reason ? `Reassigned: ${validated.reason}` : allocItem.notes,
-          },
-          include: { unit: { include: { room: true } } },
-        });
-      } else {
-        // Create new allocation item under active allocation
-        updatedItem = await tx.allocationItem.create({
-          data: {
-            allocationId: activeAllocation!.id,
-            unitId: validated.newUnitId,
-            participantId: participant.id,
-            entryDate: activeAllocation!.entryDate,
-            exitDate: activeAllocation!.exitDate,
-            status: AllocationItemStatus.CONFIRMED,
-            notes: validated.reason,
-          },
-          include: { unit: { include: { room: true } } },
-        });
-      }
-
-      await tx.activityLog.create({
-        data: {
-          entityType: 'ALLOCATION_ITEM',
-          entityId: updatedItem.id,
-          action: ActionType.TRANSFER,
-          userId: req.user?.id,
-          details: {
-            participantId: participant.id,
-            participantName: participant.fullName,
-            fromRoom: oldRoomNumber,
-            fromUnit: oldUnitNumber,
-            fromType: oldType,
-            toRoom: newUnit.room.roomNumber,
-            toUnit: newUnit.unitNumber,
-            toType: newUnit.type,
-            reason: validated.reason,
-            stage: 'PRE_CHECK_IN',
-          },
-        },
-      });
-
-      return updatedItem;
-    });
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully changed assignment for ${participant.fullName} to Room ${newUnit.room.roomNumber} (${newUnit.type} ${newUnit.unitNumber}).`,
-      data: result,
-    });
+      ],
+      reason: validated.reason,
+    };
+    return batchChangeAssignment(req, res);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       res.status(400).json({
@@ -2333,6 +2081,201 @@ export async function changeAssignment(req: Request, res: Response): Promise<voi
       success: false,
       message: 'Failed to change unit assignment.',
       error: error.message,
+    });
+  }
+}
+
+/**
+ * 11b. Batch Change Room / Bed / Mat Assignments (Single or Multiple Members)
+ */
+export async function batchChangeAssignment(req: Request, res: Response): Promise<void> {
+  try {
+    const validated = batchChangeAssignmentSchema.parse(req.body);
+    const { assignments, reason } = validated;
+
+    const results = await prisma.$transaction(async (tx) => {
+      const processed: any[] = [];
+
+      for (const item of assignments) {
+        // 1. Verify destination unit
+        const newUnit = await tx.accommodationUnit.findUnique({
+          where: { id: item.newUnitId },
+          include: { room: { include: { hotel: true } } },
+        });
+
+        if (!newUnit) {
+          throw new Error(`Destination unit ${item.newUnitId} not found.`);
+        }
+        if (newUnit.status !== 'ACTIVE' || newUnit.room.status !== 'ACTIVE') {
+          throw new Error(`Room ${newUnit.room.roomNumber} or Unit ${newUnit.unitNumber} is inactive or under maintenance.`);
+        }
+
+        // Verify not occupied by another active stay
+        const activeOccupant = await tx.stayRecord.findFirst({
+          where: {
+            unitId: item.newUnitId,
+            status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
+            actualCheckOut: null,
+          },
+          include: { participant: true },
+        });
+
+        if (activeOccupant && activeOccupant.participantId !== item.participantId) {
+          throw new Error(`Unit ${newUnit.unitNumber} in Room ${newUnit.room.roomNumber} is currently occupied by ${activeOccupant.participant.fullName}.`);
+        }
+
+        // Check if this is a Stay Record change (Checked-in)
+        let activeStay = null;
+        if (item.stayRecordId) {
+          activeStay = await tx.stayRecord.findUnique({
+            where: { id: item.stayRecordId },
+            include: { unit: { include: { room: true } }, participant: true },
+          });
+        } else if (item.participantId) {
+          activeStay = await tx.stayRecord.findFirst({
+            where: {
+              participantId: item.participantId,
+              status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
+              actualCheckOut: null,
+            },
+            include: { unit: { include: { room: true } }, participant: true },
+          });
+        }
+
+        if (activeStay) {
+          // POST-CHECK-IN TRANSFER
+          if (activeStay.unitId !== item.newUnitId) {
+            await tx.stayRecord.update({
+              where: { id: activeStay.id },
+              data: {
+                actualCheckOut: new Date(),
+                status: StayStatus.TRANSFERRED,
+                transferReason: reason,
+              },
+            });
+
+            if (activeStay.allocationItemId) {
+              await tx.allocationItem.update({
+                where: { id: activeStay.allocationItemId },
+                data: { unitId: item.newUnitId },
+              });
+            }
+
+            const newStay = await tx.stayRecord.create({
+              data: {
+                registrationId: activeStay.registrationId,
+                participantId: activeStay.participantId,
+                unitId: item.newUnitId,
+                allocationItemId: activeStay.allocationItemId,
+                actualCheckIn: new Date(),
+                status: StayStatus.CHECKED_IN,
+                previousStayRecordId: activeStay.id,
+                transferReason: reason,
+                recordedById: req.user!.id,
+              },
+              include: { unit: { include: { room: true } } },
+            });
+
+            await tx.activityLog.create({
+              data: {
+                entityType: 'STAY_RECORD',
+                entityId: newStay.id,
+                action: ActionType.TRANSFER,
+                userId: req.user?.id,
+                details: {
+                  participantId: activeStay.participantId,
+                  participantName: activeStay.participant?.fullName || 'Guest',
+                  fromRoom: activeStay.unit.room.roomNumber,
+                  fromUnit: activeStay.unit.unitNumber,
+                  toRoom: newUnit.room.roomNumber,
+                  toUnit: newUnit.unitNumber,
+                  reason,
+                  stage: 'POST_CHECK_IN',
+                },
+              },
+            });
+
+            processed.push({ type: 'STAY', id: newStay.id, toRoom: newUnit.room.roomNumber, toUnit: newUnit.unitNumber });
+          }
+        } else {
+          // PRE-CHECK-IN ALLOCATION ITEM REASSIGNMENT
+          let allocItem = null;
+          if (item.allocationItemId) {
+            allocItem = await tx.allocationItem.findUnique({
+              where: { id: item.allocationItemId },
+              include: { unit: { include: { room: true } }, participant: true },
+            });
+          } else if (item.participantId) {
+            allocItem = await tx.allocationItem.findFirst({
+              where: {
+                participantId: item.participantId,
+                status: { not: AllocationItemStatus.CANCELLED },
+              },
+              include: { unit: { include: { room: true } }, participant: true },
+            });
+          }
+
+          if (allocItem) {
+            const oldRoom = allocItem.unit.room.roomNumber;
+            const oldUnitNum = allocItem.unit.unitNumber;
+
+            const updatedItem = await tx.allocationItem.update({
+              where: { id: allocItem.id },
+              data: {
+                unitId: item.newUnitId,
+                ...(item.participantId ? { participantId: item.participantId } : {}),
+                notes: reason ? `Reassigned: ${reason}` : allocItem.notes,
+              },
+              include: { unit: { include: { room: true } } },
+            });
+
+            await tx.activityLog.create({
+              data: {
+                entityType: 'ALLOCATION_ITEM',
+                entityId: updatedItem.id,
+                action: ActionType.TRANSFER,
+                userId: req.user?.id,
+                details: {
+                  participantId: item.participantId || allocItem.participantId,
+                  fromRoom: oldRoom,
+                  fromUnit: oldUnitNum,
+                  toRoom: newUnit.room.roomNumber,
+                  toUnit: newUnit.unitNumber,
+                  reason,
+                  stage: 'PRE_CHECK_IN',
+                },
+              },
+            });
+
+            processed.push({ type: 'ALLOCATION_ITEM', id: updatedItem.id, toRoom: newUnit.room.roomNumber, toUnit: newUnit.unitNumber });
+          } else {
+            throw new Error(`Could not find active reservation or allocation item for assignment transfer.`);
+          }
+        }
+      }
+
+      return processed;
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully transferred ${results.length} assignment(s).`,
+      data: results,
+    });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        success: false,
+        message: 'Validation failed.',
+        errors: error.errors,
+      });
+      return;
+    }
+
+    console.error('Error in batch change assignment:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to execute assignment transfer.',
     });
   }
 }

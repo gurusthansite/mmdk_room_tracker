@@ -14,6 +14,7 @@ import {
   transferParticipant,
   extendStay,
   changeAssignment,
+  batchChangeAssignment,
   updateParticipantPhone,
   checkInAgain,
 } from '../controllers/reception.controller';
@@ -71,6 +72,7 @@ router.post('/extend-stay', requireRole(STAFF_ROLES), extendStay);
 
 // 11. Change Room / Bed / Mat Assignment (Pre or Post Check-in)
 router.post('/change-assignment', requireRole(STAFF_ROLES), changeAssignment);
+router.post('/batch-change-assignment', requireRole(STAFF_ROLES), batchChangeAssignment);
 
 // 12. Update Participant Phone
 router.put('/participants/:id/phone', requireRole(STAFF_ROLES), updateParticipantPhone);

@@ -441,30 +441,55 @@ export default function ReceptionPage() {
 
   // --------------------------------------------------------------------------
   // CHANGE ROOM / BED / MAT MODAL STATE (Pre & Post Check-In)
+  // Supports Single or Multiple Persons transfer, Hotel filter, Room Search
   // --------------------------------------------------------------------------
   const [changeModalOpen, setChangeModalOpen] = useState<boolean>(false);
-  const [changeParticipant, setChangeParticipant] = useState<any | null>(null);
-  const [changeCurrentAssignment, setChangeCurrentAssignment] = useState<{
-    unitId: string;
-    unitNumber: string;
-    unitType: UnitType;
-    roomNumber: string;
-    building?: string | null;
-    stage: 'PRE_CHECK_IN' | 'CHECKED_IN';
+  const [changeGroupInfo, setChangeGroupInfo] = useState<{
+    registrationId: string;
+    displayRegId?: string;
+    primaryName: string;
+    mobile?: string | null;
+    totalMembers: number;
+    entryDate?: string;
+    exitDate?: string;
   } | null>(null);
-  const [changeCategoryFilter, setChangeCategoryFilter] = useState<GenderPreference>('ANY');
-  const [changeTypeFilter, setChangeTypeFilter] = useState<'ALL' | 'BED' | 'MAT'>('ALL');
-  const [changeAvailableRooms, setChangeAvailableRooms] = useState<AvailabilityRoom[]>([]);
-  const [changeAvailabilityLoading, setChangeAvailabilityLoading] = useState<boolean>(false);
-  const [changeSelectedUnit, setChangeSelectedUnit] = useState<{
+  const [changeMembers, setChangeMembers] = useState<Array<{
+    key: string;
+    participantId?: string | null;
+    allocationItemId?: string | null;
+    stayRecordId?: string | null;
+    fullName: string;
+    gender?: string | null;
+    phone?: string | null;
+    isPrimary?: boolean;
+    currentRoomNumber: string;
+    currentUnitNumber: string;
+    currentUnitType: UnitType;
+    currentHotelName?: string | null;
+    currentUnitId: string;
+    stage: 'PRE_CHECK_IN' | 'CHECKED_IN';
+  }>>([]);
+  const [selectedMemberKeys, setSelectedMemberKeys] = useState<string[]>([]);
+  const [activeAssigningKey, setActiveAssigningKey] = useState<string | null>(null);
+  const [memberTargetMap, setMemberTargetMap] = useState<Record<string, {
     unitId: string;
     unitNumber: string;
     unitType: UnitType;
     roomId: string;
     roomNumber: string;
-    building?: string | null;
-  } | null>(null);
-  const [changeReason, setChangeReason] = useState<string>('');
+    hotelName?: string | null;
+  }>>({});
+  const [changeHotelFilter, setChangeHotelFilter] = useState<string>('ALL');
+  const [changeCategoryFilter, setChangeCategoryFilter] = useState<GenderPreference>('ANY');
+  const [changeTypeFilter, setChangeTypeFilter] = useState<'ALL' | 'BED' | 'MAT'>('ALL');
+  const [changeRoomSearchQuery, setChangeRoomSearchQuery] = useState<string>('');
+  const [changeAvailableRooms, setChangeAvailableRooms] = useState<any[]>([]);
+  const [changeAvailabilityLoading, setChangeAvailabilityLoading] = useState<boolean>(false);
+  const [changeReason, setChangeReason] = useState<string>('Guest Room Reassignment');
+  // Legacy compatibility pointer
+  const [changeParticipant, setChangeParticipant] = useState<any | null>(null);
+  const [changeCurrentAssignment, setChangeCurrentAssignment] = useState<any | null>(null);
+  const [changeSelectedUnit, setChangeSelectedUnit] = useState<any | null>(null);
 
   // --------------------------------------------------------------------------
   // EDIT PARTICIPANT PHONE MODAL STATE
@@ -1020,67 +1045,32 @@ export default function ReceptionPage() {
   };
 
   // 6. Change Room / Bed / Mat Modal & Action (Pre & Post Check-In)
-  const openChangeUnitModal = async (participant: any) => {
-    // Determine current assignment
-    let currentUnitInfo: any = null;
-    if (participant.activeStay?.unit) {
-      currentUnitInfo = {
-        unitId: participant.activeStay.unit.id,
-        unitNumber: participant.activeStay.unit.unitNumber,
-        unitType: participant.activeStay.unit.type,
-        roomNumber: participant.activeStay.unit.room?.roomNumber || 'Unknown',
-        building: participant.activeStay.unit.room?.building,
-        stage: 'CHECKED_IN',
-      };
-    } else {
-      // Find from active allocation
-      const item = dossier?.activeAllocation?.items.find(
-        (it: any) => it.participantId === participant.id || it.unitId === unitAssignments[participant.id]
-      );
-      if (item?.unit) {
-        currentUnitInfo = {
-          unitId: item.unit.id,
-          unitNumber: item.unit.unitNumber,
-          unitType: item.unit.type,
-          roomNumber: item.unit.room?.roomNumber || 'Unknown',
-          building: item.unit.room?.building,
-          stage: 'PRE_CHECK_IN',
-        };
-      }
-    }
-
-    setChangeParticipant(participant);
-    setChangeCurrentAssignment(currentUnitInfo);
-    setChangeSelectedUnit(null);
-    setChangeReason('');
-    setChangeTypeFilter('ALL');
-
-    const defaultCat: GenderPreference =
-      participant.gender === 'FEMALE' ? 'FEMALE' : participant.gender === 'MALE' ? 'MALE' : 'ANY';
-    setChangeCategoryFilter(defaultCat);
-    setChangeModalOpen(true);
-    fetchChangeAvailability(defaultCat, 'ALL');
-  };
-
-  const fetchChangeAvailability = async (category: GenderPreference, unitType: 'ALL' | 'BED' | 'MAT') => {
+  // Supports Single or Multiple Persons transfer, Hotel filter, Room Search
+  const fetchChangeAvailabilityRooms = async (
+    entryDateStr?: string,
+    exitDateStr?: string,
+    hotelId?: string,
+    category?: GenderPreference,
+    unitType?: 'ALL' | 'BED' | 'MAT'
+  ) => {
     setChangeAvailabilityLoading(true);
     try {
-      const entryDate = dossier?.activeAllocation?.entryDate
-        ? new Date(dossier.activeAllocation.entryDate).toISOString()
-        : new Date().toISOString();
-      const exitDate = dossier?.activeAllocation?.exitDate
-        ? new Date(dossier.activeAllocation.exitDate).toISOString()
-        : new Date(Date.now() + 86400000).toISOString();
+      const entryDate = entryDateStr || (changeGroupInfo?.entryDate ? new Date(changeGroupInfo.entryDate).toISOString() : new Date().toISOString());
+      const exitDate = exitDateStr || (changeGroupInfo?.exitDate ? new Date(changeGroupInfo.exitDate).toISOString() : new Date(Date.now() + 86400000).toISOString());
 
       const res = await api.checkAvailability({
         entryDate,
         exitDate,
-        roomCategory: category !== 'ANY' ? category : undefined,
-        unitType: unitType !== 'ALL' ? (unitType as UnitType) : undefined,
+        hotelId: hotelId && hotelId !== 'ALL' ? hotelId : undefined,
+        roomCategory: category && category !== 'ANY' ? category : undefined,
+        unitType: unitType && unitType !== 'ALL' ? (unitType as UnitType) : undefined,
       });
 
       if (res.success && res.data) {
-        setChangeAvailableRooms(res.data.rooms);
+        const rooms = res.data.rooms || [];
+        // Natural numeric sorting for destination rooms
+        rooms.sort((a: any, b: any) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
+        setChangeAvailableRooms(rooms);
       }
     } catch (e) {
       console.error('Error checking availability for change unit:', e);
@@ -1089,35 +1079,125 @@ export default function ReceptionPage() {
     }
   };
 
-  const handleExecuteChangeUnit = async () => {
-    if (!changeParticipant || !changeSelectedUnit || !changeReason.trim()) {
-      setErrorMessage('Please select a new bed/mat and provide a reason for the change.');
+  const openChangeUnitModal = async (participantOrItem: any) => {
+    return handleLaunchChangeUnit(participantOrItem);
+  };
+
+  const handleSelectUnitForMember = (memberKey: string, unit: any, room: any) => {
+    setMemberTargetMap((prev) => ({
+      ...prev,
+      [memberKey]: {
+        unitId: unit.id,
+        unitNumber: unit.unitNumber,
+        unitType: unit.type,
+        roomId: room.id,
+        roomNumber: room.roomNumber,
+        hotelName: room.hotel?.name || room.hotelName || 'Main Property',
+      },
+    }));
+
+    // If multiple members are selected, automatically advance active assigning key to next unassigned member
+    const unassigned = selectedMemberKeys.filter((k) => k !== memberKey && !memberTargetMap[k]);
+    if (unassigned.length > 0) {
+      setActiveAssigningKey(unassigned[0]);
+    }
+  };
+
+  const handleAutoAssignRoomToSelected = (room: any) => {
+    // Collect all unassigned selected members
+    const unassignedKeys = selectedMemberKeys.filter((k) => !memberTargetMap[k]);
+    const targetKeys = unassignedKeys.length > 0 ? unassignedKeys : selectedMemberKeys;
+
+    // Get available units in this room that aren't already mapped
+    const currentlyMappedUnitIds = new Set(Object.values(memberTargetMap).map((m) => m.unitId));
+    const freeUnits = room.units.filter((u: any) => u.isAvailable && !currentlyMappedUnitIds.has(u.id));
+
+    if (freeUnits.length === 0) {
+      setErrorMessage(`No available units in Room ${room.roomNumber}.`);
+      return;
+    }
+
+    const newMap = { ...memberTargetMap };
+    let assignedCount = 0;
+
+    targetKeys.forEach((key, idx) => {
+      if (idx < freeUnits.length) {
+        const unit = freeUnits[idx];
+        newMap[key] = {
+          unitId: unit.id,
+          unitNumber: unit.unitNumber,
+          unitType: unit.type,
+          roomId: room.id,
+          roomNumber: room.roomNumber,
+          hotelName: room.hotel?.name || room.hotelName || 'Main Property',
+        };
+        assignedCount++;
+      }
+    });
+
+    setMemberTargetMap(newMap);
+    setSuccessMessage(`Mapped ${assignedCount} selected member(s) to Room ${room.roomNumber}.`);
+  };
+
+  const handleExecuteBatchChangeUnits = async () => {
+    if (selectedMemberKeys.length === 0) {
+      setErrorMessage('Please select at least one guest/member to transfer.');
+      return;
+    }
+
+    // Verify all selected members have a destination target
+    const missing = selectedMemberKeys.filter((k) => !memberTargetMap[k]);
+    if (missing.length > 0) {
+      const missingNames = missing.map((k) => changeMembers.find((m) => m.key === k)?.fullName || 'Member').join(', ');
+      setErrorMessage(`Please select a destination bed/mat for: ${missingNames}`);
+      return;
+    }
+
+    if (!changeReason.trim()) {
+      setErrorMessage('Please provide a reason for the transfer.');
       return;
     }
 
     setActionLoading(true);
     setErrorMessage(null);
     try {
-      const res = await api.changeAssignment({
-        participantId: changeParticipant.id,
-        newUnitId: changeSelectedUnit.unitId,
+      const assignments = selectedMemberKeys.map((key) => {
+        const m = changeMembers.find((mem) => mem.key === key);
+        const target = memberTargetMap[key];
+        return {
+          participantId: m?.participantId || null,
+          allocationItemId: m?.allocationItemId || null,
+          stayRecordId: m?.stayRecordId || null,
+          newUnitId: target.unitId,
+        };
+      });
+
+      const res = await api.batchChangeAssignment({
+        assignments,
         reason: changeReason.trim(),
       });
 
       if (res.success) {
-        setSuccessMessage(res.message || `Assignment updated for ${changeParticipant.fullName}.`);
+        setSuccessMessage(res.message || `Successfully transferred ${assignments.length} guest assignment(s).`);
         setChangeModalOpen(false);
-        if (dossier) await openDossier(dossier.registration.id);
+        setMemberTargetMap({});
+        setSelectedMemberKeys([]);
+        if (changeGroupInfo?.registrationId) {
+          await openDossier(changeGroupInfo.registrationId);
+        }
         await fetchOverview();
       } else {
-        setErrorMessage(res.message || 'Failed to update assignment.');
+        setErrorMessage(res.message || 'Failed to update assignments.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error updating unit assignment.');
+      setErrorMessage(err.message || 'Error updating unit assignments.');
     } finally {
       setActionLoading(false);
     }
   };
+
+  // Legacy single unit change handler (for backward compatibility)
+  const handleExecuteChangeUnit = handleExecuteBatchChangeUnits;
 
   // 7. Update Participant Phone
   const openPhoneEditModal = (p: any) => {
@@ -1226,35 +1306,147 @@ export default function ReceptionPage() {
     }
   };
 
-  // Launch Change Room / Bed / Mat for an item
+  // Launch Change Room / Bed / Mat for an item (Group or Individual)
   const handleLaunchChangeUnit = async (item: any) => {
-    // If it's a stay record
-    if (item.participant && item.unit) {
-      openChangeUnitModal({
-        id: item.participant.id,
-        fullName: item.participant.fullName,
-        gender: item.participant.gender,
-        phone: item.participant.phone,
-        activeStay: item,
-      });
-      return;
-    }
-
-    // If it's an allocation
-    const regId = item.registration?.id || item.id;
+    setActionLoading(true);
     try {
-      const res = await api.getReceptionDossier(regId);
-      if (res.success && res.data) {
-        setDossier(res.data);
-        const targetP = res.data.registration.participants.find((p) => p.isPrimary) || res.data.registration.participants[0];
-        if (targetP) {
-          openChangeUnitModal(targetP);
-        } else {
-          openDossier(regId);
+      const isStay = activeTab === 'CHECKED_IN' || activeTab === 'CHECKED_OUT' || Boolean(item.participant && item.unit);
+      const regId = isStay ? (item.registrationId || item.registration?.id) : (item.registration?.id || item.id);
+
+      let dossierData: any = null;
+      if (regId) {
+        try {
+          const res = await api.getReceptionDossier(regId);
+          if (res.success && res.data) {
+            dossierData = res.data;
+            setDossier(res.data);
+          }
+        } catch (e) {
+          console.error('Error fetching dossier for change unit:', e);
         }
       }
-    } catch (e) {
-      openDossier(regId);
+
+      const members: any[] = [];
+      let defaultHotelId = 'ALL';
+
+      // 1. If Checked-in Stays exist
+      if (isStay || (dossierData?.registration?.participants && dossierData.registration.participants.some((p: any) => p.stayRecords?.length > 0))) {
+        const participants = dossierData?.registration?.participants || [];
+        participants.forEach((p: any, idx: number) => {
+          const activeStay = p.stayRecords?.find((s: any) => s.status === 'CHECKED_IN' || s.status === 'EXTENDED');
+          if (activeStay?.unit) {
+            if (activeStay.unit.room?.hotelId && defaultHotelId === 'ALL') {
+              defaultHotelId = activeStay.unit.room.hotelId;
+            }
+            members.push({
+              key: `stay-${activeStay.id}`,
+              participantId: p.id,
+              stayRecordId: activeStay.id,
+              allocationItemId: activeStay.allocationItemId || null,
+              fullName: p.fullName || `Guest ${idx + 1}`,
+              gender: p.gender,
+              phone: p.phone,
+              isPrimary: p.isPrimary,
+              currentRoomNumber: activeStay.unit.room?.roomNumber || 'Unknown',
+              currentUnitNumber: activeStay.unit.unitNumber,
+              currentUnitType: activeStay.unit.type,
+              currentHotelName: activeStay.unit.room?.hotel?.name || 'Main Property',
+              currentUnitId: activeStay.unit.id,
+              stage: 'CHECKED_IN',
+            });
+          }
+        });
+
+        // Fallback for single stay row if dossier didn't include other participants
+        if (members.length === 0 && item.unit) {
+          members.push({
+            key: `stay-${item.id}`,
+            participantId: item.participant?.id || item.participantId,
+            stayRecordId: item.id,
+            allocationItemId: item.allocationItemId || null,
+            fullName: item.participant?.fullName || 'Guest',
+            gender: item.participant?.gender,
+            phone: item.participant?.phone,
+            isPrimary: item.participant?.isPrimary ?? true,
+            currentRoomNumber: item.unit.room?.roomNumber || 'Unknown',
+            currentUnitNumber: item.unit.unitNumber,
+            currentUnitType: item.unit.type,
+            currentHotelName: item.unit.room?.hotel?.name || 'Main Property',
+            currentUnitId: item.unit.id,
+            stage: 'CHECKED_IN',
+          });
+        }
+      }
+
+      // 2. Pre-arrival allocations (Allocated, Tentative, Confirmed)
+      if (members.length === 0) {
+        const allocItems = dossierData?.activeAllocation?.items || item.items || [];
+        const participants = dossierData?.registration?.participants || item.registration?.participants || [];
+
+        allocItems.forEach((it: any, idx: number) => {
+          const matchedP = participants.find((p: any) => p.id === it.participantId) || participants[idx];
+          if (it.unit?.room?.hotelId && defaultHotelId === 'ALL') {
+            defaultHotelId = it.unit.room.hotelId;
+          }
+          members.push({
+            key: `alloc-${it.id || idx}`,
+            participantId: matchedP?.id || it.participantId || null,
+            allocationItemId: it.id,
+            stayRecordId: null,
+            fullName: matchedP ? matchedP.fullName : `${item.primaryName || item.registration?.primaryName || 'Guest'} (Person ${idx + 1})`,
+            gender: matchedP?.gender || item.genderPreference || 'MALE',
+            phone: matchedP?.phone || item.mobile || item.registration?.mobile,
+            isPrimary: matchedP?.isPrimary ?? (idx === 0),
+            currentRoomNumber: it.unit?.room?.roomNumber || 'Unknown',
+            currentUnitNumber: it.unit?.unitNumber || `U${idx + 1}`,
+            currentUnitType: it.unit?.type || 'BED',
+            currentHotelName: it.unit?.room?.hotel?.name || 'Main Property',
+            currentUnitId: it.unit?.id,
+            stage: 'PRE_CHECK_IN',
+          });
+        });
+      }
+
+      // Group header info
+      const reg = dossierData?.registration || item.registration || item;
+      const groupInfo = {
+        registrationId: reg.id || regId || '—',
+        displayRegId: reg.registrationId || item.registrationId || '—',
+        primaryName: reg.primaryName || item.primaryName || item.participant?.fullName || 'Guest',
+        mobile: reg.mobile || item.mobile || item.phone,
+        totalMembers: reg.totalMembers || members.length || 1,
+        entryDate: item.entryDate || dossierData?.activeAllocation?.entryDate || new Date().toISOString(),
+        exitDate: item.exitDate || dossierData?.activeAllocation?.exitDate || new Date(Date.now() + 86400000).toISOString(),
+      };
+
+      setChangeGroupInfo(groupInfo);
+      setChangeMembers(members);
+      setMemberTargetMap({});
+      setChangeReason('Room / Bed Reassignment');
+      setChangeRoomSearchQuery('');
+
+      // Default selection: select the first member
+      if (members.length > 0) {
+        setSelectedMemberKeys([members[0].key]);
+        setActiveAssigningKey(members[0].key);
+      } else {
+        setSelectedMemberKeys([]);
+        setActiveAssigningKey(null);
+      }
+
+      const defaultCat: GenderPreference = members[0]?.gender === 'FEMALE' ? 'FEMALE' : members[0]?.gender === 'MALE' ? 'MALE' : 'ANY';
+      setChangeCategoryFilter(defaultCat);
+      setChangeTypeFilter('ALL');
+      setChangeHotelFilter('ALL');
+      setChangeModalOpen(true);
+
+      // Fetch available destination rooms
+      await fetchChangeAvailabilityRooms(groupInfo.entryDate, groupInfo.exitDate, 'ALL', defaultCat, 'ALL');
+    } catch (e: any) {
+      console.error('Failed to launch change unit modal:', e);
+      setErrorMessage(e.message || 'Failed to open change room modal.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -3829,10 +4021,11 @@ export default function ReceptionPage() {
 
       {/* ------------------------------------------------------------------ */}
       {/* MODAL 3: CHANGE ASSIGNED ROOM / BED / MAT (Pre & Post Check-In)     */}
+      {/* Supports Single or Multiple Persons transfer, Hotel filter, Room Search */}
       {/* ------------------------------------------------------------------ */}
-      {changeModalOpen && changeParticipant && (
+      {changeModalOpen && changeGroupInfo && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 my-6 flex flex-col max-h-[92vh]">
+          <div className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 my-6 flex flex-col max-h-[92vh]">
             {/* Modal Header */}
             <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
@@ -3842,7 +4035,7 @@ export default function ReceptionPage() {
                 <div>
                   <h3 className="text-base font-bold">Change Assigned Room / Bed / Mat</h3>
                   <p className="text-[11px] text-slate-400">
-                    Switch between Bed and Mat, transfer across rooms, or change unit numbers safely
+                    Transfer single or multiple party members across hotels, buildings, and rooms safely
                   </p>
                 </div>
               </div>
@@ -3857,52 +4050,219 @@ export default function ReceptionPage() {
 
             {/* Modal Body */}
             <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-              {/* CURRENT ASSIGNMENT CARD */}
-              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* REGISTRATION GROUP BANNER */}
+              <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">
-                    Current Assignment Details
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider">
+                      Registration Group
+                    </span>
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-white border border-amber-300 text-slate-900">
+                      {changeGroupInfo.displayRegId}
+                    </span>
+                  </div>
                   <p className="font-bold text-slate-900 text-sm mt-0.5">
-                    {changeParticipant.fullName}
+                    {changeGroupInfo.primaryName}
                   </p>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Gender: <strong>{changeParticipant.gender || 'Unknown'}</strong> &bull; Phone:{' '}
-                    <span className="font-mono">{changeParticipant.phone || 'Not provided'}</span>
+                    Phone: <span className="font-mono font-medium">{changeGroupInfo.mobile || 'Not provided'}</span> &bull; Total Party Size: <strong>{changeGroupInfo.totalMembers} Persons</strong>
                   </p>
                 </div>
 
-                <div className="bg-white px-3.5 py-2 rounded-lg border border-amber-300 shadow-2xs text-left sm:text-right">
-                  <span className="text-[10px] font-bold uppercase text-slate-500 block">
-                    {changeCurrentAssignment?.stage === 'CHECKED_IN' ? 'Occupying (Checked-In)' : 'Reserved (Pre-Arrival)'}
-                  </span>
-                  {changeCurrentAssignment ? (
-                    <p className="font-mono font-bold text-sm text-slate-900">
-                      Room {changeCurrentAssignment.roomNumber} &bull; {changeCurrentAssignment.unitType} {changeCurrentAssignment.unitNumber}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-500 italic">No assigned unit yet</p>
-                  )}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allKeys = changeMembers.map((m) => m.key);
+                      setSelectedMemberKeys(allKeys);
+                      if (allKeys.length > 0) setActiveAssigningKey(allKeys[0]);
+                    }}
+                    className="px-2.5 py-1 text-xs font-bold bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg shadow-2xs transition"
+                  >
+                    Select All ({changeMembers.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedMemberKeys([]);
+                      setActiveAssigningKey(null);
+                      setMemberTargetMap({});
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg shadow-2xs transition"
+                  >
+                    Clear
+                  </button>
                 </div>
               </div>
 
-              {/* SEARCH & FILTER CONTROLS */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+              {/* MEMBERS SELECTION LIST (SINGLE OR MULTIPLE PERSONS) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-700">
+                  <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-600" />
+                    Assigned Party Members ({selectedMemberKeys.length} of {changeMembers.length} Selected):
+                  </span>
+                  <span className="text-[11px] text-slate-500 italic">
+                    Check the box for each member you want to transfer
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {changeMembers.map((member) => {
+                    const isSelected = selectedMemberKeys.includes(member.key);
+                    const target = memberTargetMap[member.key];
+                    const isActiveTarget = activeAssigningKey === member.key;
+
+                    return (
+                      <div
+                        key={member.key}
+                        onClick={() => {
+                          if (!isSelected) {
+                            setSelectedMemberKeys([...selectedMemberKeys, member.key]);
+                            setActiveAssigningKey(member.key);
+                          } else {
+                            setActiveAssigningKey(member.key);
+                          }
+                        }}
+                        className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
+                          isActiveTarget
+                            ? 'bg-amber-50/90 border-amber-400 ring-2 ring-amber-300 shadow-sm'
+                            : isSelected
+                            ? 'bg-blue-50/70 border-blue-300 shadow-2xs'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 opacity-80'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (e.target.checked) {
+                                  setSelectedMemberKeys([...selectedMemberKeys, member.key]);
+                                  setActiveAssigningKey(member.key);
+                                } else {
+                                  setSelectedMemberKeys(selectedMemberKeys.filter((k) => k !== member.key));
+                                  if (activeAssigningKey === member.key) {
+                                    setActiveAssigningKey(selectedMemberKeys.find((k) => k !== member.key) || null);
+                                  }
+                                  const copy = { ...memberTargetMap };
+                                  delete copy[member.key];
+                                  setMemberTargetMap(copy);
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                              <p className="font-bold text-xs text-slate-900 leading-tight">
+                                {member.fullName} {member.isPrimary && <span className="text-[10px] text-blue-600 font-bold">(Primary)</span>}
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                {member.gender || 'Any'} &bull; {member.phone || 'No phone'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            member.stage === 'CHECKED_IN' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {member.stage === 'CHECKED_IN' ? 'Checked-In' : 'Pre-Arrival'}
+                          </span>
+                        </div>
+
+                        {/* Current vs Target Assignment */}
+                        <div className="mt-2 pt-2 border-t border-slate-200/80 text-[11px] space-y-1">
+                          <div className="flex items-center justify-between text-slate-600">
+                            <span className="text-[10px] text-slate-400 uppercase font-semibold">Current:</span>
+                            <span className="font-mono font-bold text-slate-800 text-right">
+                              Room {member.currentRoomNumber} &bull; {member.currentUnitType} {member.currentUnitNumber}
+                              <span className="text-[9px] font-sans font-normal text-slate-500 block">({member.currentHotelName || 'Main'})</span>
+                            </span>
+                          </div>
+
+                          {target ? (
+                            <div className="flex items-center justify-between p-1.5 bg-emerald-50 rounded border border-emerald-200 text-emerald-900 font-semibold text-[11px]">
+                              <span className="text-[10px] uppercase font-bold text-emerald-700">Target:</span>
+                              <span className="font-mono font-bold text-right">
+                                Room {target.roomNumber} &bull; {target.unitType} {target.unitNumber}
+                                <span className="text-[9px] font-sans font-normal text-emerald-700 block">({target.hotelName})</span>
+                              </span>
+                            </div>
+                          ) : isSelected ? (
+                            <p className={`text-[10px] font-medium text-right ${isActiveTarget ? 'text-amber-800 font-bold' : 'text-slate-400 italic'}`}>
+                              {isActiveTarget ? '👈 Selecting Bed Below' : 'Pending Selection'}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SEARCH & FILTER CONTROLS (HOTEL SELECTOR, ROOM SEARCH, CATEGORY, UNIT TYPE) */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
-                    Available Rooms &amp; Units Search
+                    Destination Inventory Filters
                   </span>
                   {changeAvailabilityLoading && (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {/* Category Filter */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {/* Hotel / Property Filter */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Room Category Filter
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Building className="w-3 h-3 text-blue-600" />
+                      Destination Hotel / Property
+                    </label>
+                    <select
+                      value={changeHotelFilter}
+                      onChange={(e) => {
+                        const newHotel = e.target.value;
+                        setChangeHotelFilter(newHotel);
+                        fetchChangeAvailabilityRooms(
+                          changeGroupInfo?.entryDate,
+                          changeGroupInfo?.exitDate,
+                          newHotel,
+                          changeCategoryFilter,
+                          changeTypeFilter
+                        );
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="ALL">All Hotels / Properties ({hotels.length})</option>
+                      {hotels.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Room Search Box */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Search className="w-3 h-3 text-blue-600" />
+                      Search Room Number
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 104, 105, 1..."
+                      value={changeRoomSearchQuery}
+                      onChange={(e) => setChangeRoomSearchQuery(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+
+                  {/* Room Category Filter */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Category Filter
                     </label>
                     <div className="grid grid-cols-5 gap-1">
                       {(['ANY', 'MALE', 'FEMALE', 'FAMILY', 'GUEST'] as GenderPreference[]).map((cat) => (
@@ -3911,24 +4271,30 @@ export default function ReceptionPage() {
                           type="button"
                           onClick={() => {
                             setChangeCategoryFilter(cat);
-                            fetchChangeAvailability(cat, changeTypeFilter);
+                            fetchChangeAvailabilityRooms(
+                              changeGroupInfo?.entryDate,
+                              changeGroupInfo?.exitDate,
+                              changeHotelFilter,
+                              cat,
+                              changeTypeFilter
+                            );
                           }}
-                          className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border text-center transition ${
+                          className={`py-1.5 px-1 rounded-lg text-[10px] font-bold border text-center transition ${
                             changeCategoryFilter === cat
                               ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          {cat === 'ANY' ? 'All' : cat}
+                          {cat === 'ANY' ? 'All' : cat.slice(0, 4)}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Unit Type Filter (Bed vs Mat Switch) */}
+                  {/* Unit Type Filter (Bed vs Mat) */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Unit Type Filter (BED vs MAT)
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Unit Type
                     </label>
                     <div className="grid grid-cols-3 gap-1">
                       {(['ALL', 'BED', 'MAT'] as const).map((t) => (
@@ -3937,15 +4303,21 @@ export default function ReceptionPage() {
                           type="button"
                           onClick={() => {
                             setChangeTypeFilter(t);
-                            fetchChangeAvailability(changeCategoryFilter, t);
+                            fetchChangeAvailabilityRooms(
+                              changeGroupInfo?.entryDate,
+                              changeGroupInfo?.exitDate,
+                              changeHotelFilter,
+                              changeCategoryFilter,
+                              t
+                            );
                           }}
-                          className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border text-center transition ${
+                          className={`py-1.5 px-1.5 rounded-lg text-[10px] font-bold border text-center transition ${
                             changeTypeFilter === t
                               ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
                               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          {t === 'ALL' ? 'All Units' : t === 'BED' ? '🛏️ Beds Only' : '🧘 Mats Only'}
+                          {t === 'ALL' ? 'All' : t === 'BED' ? '🛏️ Beds' : '🧘 Mats'}
                         </button>
                       ))}
                     </div>
@@ -3955,116 +4327,188 @@ export default function ReceptionPage() {
 
               {/* LIVE AVAILABLE ROOMS GRID */}
               <div className="space-y-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
-                  Select Destination Bed or Mat ({changeAvailableRooms.length} Compatible Rooms):
-                </span>
+                {(() => {
+                  const filteredAvailableRooms = changeAvailableRooms.filter((r) => {
+                    if (!changeRoomSearchQuery.trim()) return true;
+                    return (
+                      r.roomNumber.toLowerCase().includes(changeRoomSearchQuery.toLowerCase().trim()) ||
+                      (r.hotelName && r.hotelName.toLowerCase().includes(changeRoomSearchQuery.toLowerCase().trim()))
+                    );
+                  });
 
-                {changeAvailableRooms.length === 0 ? (
-                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs">
-                    {changeAvailabilityLoading ? (
-                      <p>Searching inventory for available units...</p>
-                    ) : (
-                      <p>No available units found for the selected category and unit type.</p>
-                    )}
+                  return (
+                    <>
+                      <div className="flex items-center justify-between text-xs text-slate-700">
+                        <span className="font-bold uppercase tracking-wider block">
+                          Select Destination Bed or Mat ({filteredAvailableRooms.length} Compatible Rooms):
+                        </span>
+                        {activeAssigningKey && (
+                          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
+                            Currently Assigning: <strong>{changeMembers.find((m) => m.key === activeAssigningKey)?.fullName}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      {filteredAvailableRooms.length === 0 ? (
+                        <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs">
+                          {changeAvailabilityLoading ? (
+                            <p>Searching inventory for available units...</p>
+                          ) : (
+                            <p>No available units found matching the selected hotel, room number, or category filters.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                          {filteredAvailableRooms.map((room) => {
+                            const availBeds = room.availableBeds ?? room.units.filter((u: any) => u.isAvailable && u.type === 'BED').length;
+                            const availMats = room.availableMats ?? room.units.filter((u: any) => u.isAvailable && u.type === 'MAT').length;
+                            const hasAvailableUnits = (room.availableCount ?? 0) > 0 || (availBeds + availMats) > 0;
+
+                            return (
+                              <div
+                                key={room.id}
+                                className={`p-3 rounded-xl border transition ${
+                                  hasAvailableUnits ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-mono font-bold text-sm text-slate-900">
+                                      Room {room.roomNumber}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                                      🏨 {room.hotelName || room.hotel?.name || 'Main Property'}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                      {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
+                                      {room.genderPreference}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 text-[11px]">
+                                    <span className="font-semibold text-blue-700">
+                                      🛏️ {availBeds} Bed(s) Free
+                                    </span>
+                                    <span className="text-slate-300">&bull;</span>
+                                    <span className="font-semibold text-emerald-700">
+                                      🧘 {availMats} Mat(s) Free
+                                    </span>
+
+                                    {/* Quick Auto-Assign Selected Members Button */}
+                                    {selectedMemberKeys.length > 1 && (availBeds + availMats) >= selectedMemberKeys.length && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAutoAssignRoomToSelected(room)}
+                                        className="ml-2 px-2 py-1 text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition shadow-2xs"
+                                        title={`Assign ${selectedMemberKeys.length} selected members to Room ${room.roomNumber}`}
+                                      >
+                                        Assign Selected Here
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Unit Buttons */}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {room.units.map((unit: any) => {
+                                    // Check if this unit is currently assigned to one of our party members
+                                    const currentPartyMember = changeMembers.find((m) => m.currentUnitId === unit.id);
+                                    const isCurrent = Boolean(currentPartyMember);
+
+                                    // Check if this unit is selected as target for one of our members
+                                    const assignedToMemberKey = Object.keys(memberTargetMap).find(
+                                      (k) => memberTargetMap[k].unitId === unit.id
+                                    );
+                                    const assignedMember = assignedToMemberKey
+                                      ? changeMembers.find((m) => m.key === assignedToMemberKey)
+                                      : null;
+                                    const isTargetSelected = Boolean(assignedMember);
+
+                                    const isAvailable = unit.isAvailable && !isCurrent;
+                                    const isBed = unit.type === 'BED';
+
+                                    return (
+                                      <button
+                                        key={unit.id}
+                                        type="button"
+                                        disabled={!isAvailable && !isTargetSelected}
+                                        onClick={() => {
+                                          if (isTargetSelected) {
+                                            // unassign
+                                            const copy = { ...memberTargetMap };
+                                            delete copy[assignedToMemberKey!];
+                                            setMemberTargetMap(copy);
+                                          } else if (activeAssigningKey) {
+                                            handleSelectUnitForMember(activeAssigningKey, unit, room);
+                                          } else if (selectedMemberKeys.length > 0) {
+                                            handleSelectUnitForMember(selectedMemberKeys[0], unit, room);
+                                          } else {
+                                            setErrorMessage('Please select a member above first.');
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 ${
+                                          isTargetSelected
+                                            ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
+                                            : isCurrent
+                                            ? 'bg-amber-100 text-amber-900 border border-amber-300 cursor-not-allowed opacity-75'
+                                            : isAvailable
+                                            ? isBed
+                                              ? 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer'
+                                              : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 cursor-pointer'
+                                            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
+                                        }`}
+                                      >
+                                        <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
+                                        {isTargetSelected && (
+                                          <span className="text-[10px] font-sans font-medium text-emerald-100 flex items-center gap-0.5">
+                                            <Check className="w-3 h-3" />
+                                            {assignedMember?.fullName.split(' ')[0]}
+                                          </span>
+                                        )}
+                                        {isCurrent && (
+                                          <span className="text-[9px] font-sans font-normal">(Current)</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* DESTINATION SELECTION SUMMARY */}
+              {Object.keys(memberTargetMap).length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5 text-xs text-blue-950 font-medium">
+                  <div className="flex items-center justify-between font-bold text-blue-900 border-b border-blue-200/80 pb-1">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                      Pending Destination Mappings ({Object.keys(memberTargetMap).length} Member(s)):
+                    </span>
+                    <span className="text-emerald-700 font-bold">Ready to Transfer</span>
                   </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-                    {changeAvailableRooms.map((room) => {
-                      const availBeds = room.availableBeds ?? room.units.filter((u) => u.isAvailable && u.type === 'BED').length;
-                      const availMats = room.availableMats ?? room.units.filter((u) => u.isAvailable && u.type === 'MAT').length;
-                      const hasAvailableUnits = room.availableCount > 0;
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                    {Object.entries(memberTargetMap).map(([key, target]) => {
+                      const m = changeMembers.find((mem) => mem.key === key);
                       return (
-                        <div
-                          key={room.id}
-                          className={`p-3 rounded-xl border transition ${
-                            hasAvailableUnits ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'
-                          }`}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm text-slate-900">
-                                Room {room.roomNumber}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
-                              </span>
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                                {room.genderPreference}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-2 text-[11px]">
-                              <span className="font-semibold text-blue-700">
-                                🛏️ {availBeds} Bed(s) Free
-                              </span>
-                              <span className="text-slate-300">&bull;</span>
-                              <span className="font-semibold text-emerald-700">
-                                🧘 {availMats} Mat(s) Free
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Unit Buttons */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {room.units.map((unit) => {
-                              const isSelected = changeSelectedUnit?.unitId === unit.id;
-                              const isCurrent = changeCurrentAssignment?.unitId === unit.id;
-                              const isAvailable = unit.isAvailable && !isCurrent;
-                              const isBed = unit.type === 'BED';
-
-                              return (
-                                <button
-                                  key={unit.id}
-                                  type="button"
-                                  disabled={!isAvailable}
-                                  onClick={() => {
-                                    setChangeSelectedUnit({
-                                      unitId: unit.id,
-                                      unitNumber: unit.unitNumber,
-                                      unitType: unit.type,
-                                      roomId: room.id,
-                                      roomNumber: room.roomNumber,
-                                      building: room.building,
-                                    });
-                                  }}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 ${
-                                    isSelected
-                                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                                      : isCurrent
-                                      ? 'bg-amber-100 text-amber-900 border border-amber-300 cursor-not-allowed'
-                                      : isAvailable
-                                      ? isBed
-                                        ? 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer'
-                                        : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 cursor-pointer'
-                                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-50'
-                                  }`}
-                                >
-                                  <span>{isBed ? '🛏️' : '🧘'} {unit.unitNumber}</span>
-                                  {isSelected && <Check className="w-3 h-3 text-white" />}
-                                  {isCurrent && <span className="text-[9px] font-sans font-normal">(Current)</span>}
-                                </button>
-                              );
-                            })}
-                          </div>
+                        <div key={key} className="flex items-center justify-between p-1.5 bg-white rounded border border-blue-200 text-[11px]">
+                          <span>
+                            <strong>{m?.fullName}</strong>: Room {m?.currentRoomNumber} &rarr;{' '}
+                            <strong className="text-blue-700">Room {target.roomNumber} ({target.unitType} {target.unitNumber})</strong>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium">({target.hotelName})</span>
                         </div>
                       );
                     })}
                   </div>
-                )}
-              </div>
-
-              {/* DESTINATION SELECTION SUMMARY */}
-              {changeSelectedUnit && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-xs text-blue-950 font-medium">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>
-                      Target Destination: <strong>Room {changeSelectedUnit.roomNumber}</strong> &bull; {changeSelectedUnit.unitType}{' '}
-                      <strong>{changeSelectedUnit.unitNumber}</strong>
-                    </span>
-                  </div>
-                  <span className="font-bold text-blue-800">Ready to Transfer</span>
                 </div>
               )}
 
@@ -4078,30 +4522,36 @@ export default function ReceptionPage() {
                   required
                   value={changeReason}
                   onChange={(e) => setChangeReason(e.target.value)}
-                  placeholder="e.g. Guest requested Bed instead of Mat, requested ground floor room"
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Guest requested Bed instead of Mat, room reassignment, inter-hotel transfer"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setChangeModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleExecuteChangeUnit}
-                disabled={actionLoading || !changeSelectedUnit || !changeReason.trim()}
-                className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {actionLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                Confirm Unit Change
-              </button>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-500 font-medium">
+                {Object.keys(memberTargetMap).length} of {selectedMemberKeys.length} selected member(s) mapped
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setChangeModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteBatchChangeUnits}
+                  disabled={actionLoading || Object.keys(memberTargetMap).length === 0 || !changeReason.trim()}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {actionLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  Confirm Unit Change ({Object.keys(memberTargetMap).length || 0})
+                </button>
+              </div>
             </div>
           </div>
         </div>

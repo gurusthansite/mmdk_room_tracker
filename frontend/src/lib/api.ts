@@ -1233,11 +1233,28 @@ class ApiClient {
   }
 
   async changeAssignment(data: {
-    participantId: string;
+    participantId?: string;
+    allocationItemId?: string;
+    stayRecordId?: string;
     newUnitId: string;
     reason: string;
   }): Promise<ApiResponse<any>> {
     return this.request<any>('/reception/change-assignment', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async batchChangeAssignment(data: {
+    assignments: Array<{
+      participantId?: string | null;
+      allocationItemId?: string | null;
+      stayRecordId?: string | null;
+      newUnitId: string;
+    }>;
+    reason: string;
+  }): Promise<ApiResponse<any>> {
+    return this.request<any>('/reception/batch-change-assignment', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -1290,38 +1307,43 @@ class ApiClient {
   }
 
   // Phase 10: Reports & Analytics
-  async getReportOverview(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
+  async getReportOverview(startDate?: string, endDate?: string, hotelId?: string): Promise<ApiResponse<any>> {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (hotelId && hotelId !== 'ALL') params.append('hotelId', hotelId);
     return this.request<any>(`/reports/overview?${params.toString()}`, { method: 'GET' });
   }
 
-  async getOccupancyReport(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
+  async getOccupancyReport(startDate?: string, endDate?: string, hotelId?: string): Promise<ApiResponse<any>> {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (hotelId && hotelId !== 'ALL') params.append('hotelId', hotelId);
     return this.request<any>(`/reports/occupancy?${params.toString()}`, { method: 'GET' });
   }
 
-  async getRegistrationReport(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
+  async getRegistrationReport(startDate?: string, endDate?: string, hotelId?: string): Promise<ApiResponse<any>> {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (hotelId && hotelId !== 'ALL') params.append('hotelId', hotelId);
     return this.request<any>(`/reports/registrations?${params.toString()}`, { method: 'GET' });
   }
 
-  async getParticipantReport(startDate?: string, endDate?: string): Promise<ApiResponse<any>> {
+  async getParticipantReport(startDate?: string, endDate?: string, hotelId?: string): Promise<ApiResponse<any>> {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (hotelId && hotelId !== 'ALL') params.append('hotelId', hotelId);
     return this.request<any>(`/reports/participants?${params.toString()}`, { method: 'GET' });
   }
 
-  async getDailyOperationalReport(startDate?: string, endDate?: string): Promise<ApiResponse<any[]>> {
+  async getDailyOperationalReport(startDate?: string, endDate?: string, hotelId?: string): Promise<ApiResponse<any[]>> {
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
+    if (hotelId && hotelId !== 'ALL') params.append('hotelId', hotelId);
     return this.request<any[]>(`/reports/operational-daily?${params.toString()}`, { method: 'GET' });
   }
 

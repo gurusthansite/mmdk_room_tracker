@@ -55,6 +55,10 @@ export default function ReportsPage() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
+  // Hotel Property filter
+  const [hotels, setHotels] = useState<any[]>([]);
+  const [hotelFilter, setHotelFilter] = useState<string>('ALL');
+
   // Loading states
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -71,6 +75,21 @@ export default function ReportsPage() {
   // UI state for room table
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
   const [roomFilterQuery, setRoomFilterQuery] = useState<string>('');
+
+  // Load hotels on mount
+  useEffect(() => {
+    async function loadHotels() {
+      try {
+        const res = await api.getHotels();
+        if (res.success && res.data) {
+          setHotels(res.data);
+        }
+      } catch (e) {
+        console.error('Failed to load hotels for report filtering', e);
+      }
+    }
+    loadHotels();
+  }, []);
 
   // Apply quick date preset
   const handlePresetChange = (preset: 'all' | 'today' | '7days' | '30days' | 'custom') => {
@@ -99,12 +118,13 @@ export default function ReportsPage() {
   const loadReports = useCallback(async () => {
     setLoading(true);
     try {
+      const hId = hotelFilter !== 'ALL' ? hotelFilter : undefined;
       const [ovRes, occRes, regRes, partRes, dailyRes] = await Promise.all([
-        api.getReportOverview(startDate, endDate),
-        api.getOccupancyReport(startDate, endDate),
-        api.getRegistrationReport(startDate, endDate),
-        api.getParticipantReport(startDate, endDate),
-        api.getDailyOperationalReport(startDate, endDate),
+        api.getReportOverview(startDate, endDate, hId),
+        api.getOccupancyReport(startDate, endDate, hId),
+        api.getRegistrationReport(startDate, endDate, hId),
+        api.getParticipantReport(startDate, endDate, hId),
+        api.getDailyOperationalReport(startDate, endDate, hId),
       ]);
 
       if (ovRes.success) setOverview(ovRes.data);
@@ -118,7 +138,7 @@ export default function ReportsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, hotelFilter]);
 
   useEffect(() => {
     loadReports();
@@ -141,6 +161,7 @@ export default function ReportsPage() {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
+      if (hotelFilter !== 'ALL') params.append('hotelId', hotelFilter);
 
       const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/reports/export/excel?${params.toString()}`;
       const res = await fetch(downloadUrl, { credentials: 'include' });
@@ -174,6 +195,7 @@ export default function ReportsPage() {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
+      if (hotelFilter !== 'ALL') params.append('hotelId', hotelFilter);
 
       const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/reports/export/pdf?${params.toString()}`;
       const res = await fetch(downloadUrl, { credentials: 'include' });
@@ -206,9 +228,11 @@ export default function ReportsPage() {
     const q = roomFilterQuery.toLowerCase();
     return (
       r.roomNumber.toLowerCase().includes(q) ||
+      (r.hotelName && r.hotelName.toLowerCase().includes(q)) ||
       (r.building && r.building.toLowerCase().includes(q))
     );
   });
+  filteredRooms.sort((a: any, b: any) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' }));
 
   return (
     <div className="space-y-6">
@@ -281,34 +305,58 @@ export default function ReportsPage() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* DATE RANGE FILTER TOOLBAR                                          */}
+      {/* FILTER TOOLBAR: HOTEL PROPERTY SELECTOR & DATE RANGE               */}
       {/* ------------------------------------------------------------------ */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        {/* Preset Pills */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-500 font-medium mr-1 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5 text-blue-600" />
-            Period:
-          </span>
-          {[
-            { id: 'all', label: 'All Operations' },
-            { id: 'today', label: 'Today' },
-            { id: '7days', label: 'Past 7 Days' },
-            { id: '30days', label: 'Past 30 Days' },
-            { id: 'custom', label: 'Custom Range' },
-          ].map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => handlePresetChange(preset.id as any)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                datePreset === preset.id
-                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200'
-              }`}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        {/* Hotel Filter Dropdown & Period Pills */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 font-semibold flex items-center gap-1">
+              <Building className="w-3.5 h-3.5 text-blue-600" />
+              Property:
+            </span>
+            <select
+              value={hotelFilter}
+              onChange={(e) => setHotelFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-900 font-bold"
             >
-              {preset.label}
-            </button>
-          ))}
+              <option value="ALL">All Properties ({hotels.length || 'All'})</option>
+              {hotels.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="h-4 w-[1px] bg-slate-200 hidden sm:block" />
+
+          {/* Preset Pills */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-xs text-slate-500 font-medium mr-1 flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-blue-600" />
+              Period:
+            </span>
+            {[
+              { id: 'all', label: 'All Operations' },
+              { id: 'today', label: 'Today' },
+              { id: '7days', label: 'Past 7 Days' },
+              { id: '30days', label: 'Past 30 Days' },
+              { id: 'custom', label: 'Custom Range' },
+            ].map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => handlePresetChange(preset.id as any)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                  datePreset === preset.id
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Date Inputs */}
@@ -360,6 +408,9 @@ export default function ReportsPage() {
           <div className="mt-2 text-2xl font-bold text-slate-900">
             {overview?.capacity.overallOccupancyRate ?? 0}%
           </div>
+          <p className="mt-1 text-[11px] text-slate-500 font-medium truncate">
+            {(overview?.capacity.occupiedUnits || 0) + (overview?.capacity.reservedUnits || 0)} Units Booked/Active
+          </p>
           <div className="mt-1.5 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
             <div
               className="bg-emerald-500 h-1.5 rounded-full"
@@ -370,11 +421,11 @@ export default function ReportsPage() {
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-medium">Occupied Units</span>
+            <span className="font-medium">Checked-In Guests</span>
             <Bed className="w-4 h-4 text-purple-600" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            {overview?.capacity.occupiedUnits ?? '—'}
+          <div className="mt-2 text-2xl font-bold text-purple-700">
+            {overview?.capacity.occupiedUnits ?? 0}
           </div>
           <p className="mt-1 text-[11px] text-slate-400">
             {overview?.capacity.occupiedBeds ?? 0} Beds, {overview?.capacity.occupiedMats ?? 0} Mats
@@ -383,10 +434,23 @@ export default function ReportsPage() {
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs">
+            <span className="font-medium">Reserved Units</span>
+            <Calendar className="w-4 h-4 text-amber-600" />
+          </div>
+          <div className="mt-2 text-2xl font-bold text-amber-700">
+            {overview?.capacity.reservedUnits ?? 0}
+          </div>
+          <p className="mt-1 text-[11px] text-amber-700 font-semibold truncate">
+            Allocations Awaiting Check-In
+          </p>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs">
             <span className="font-medium">Available Units</span>
             <CheckCircle2 className="w-4 h-4 text-teal-600" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
+          <div className="mt-2 text-2xl font-bold text-teal-700">
             {overview?.capacity.availableUnits ?? '—'}
           </div>
           <p className="mt-1 text-[11px] text-slate-400">
@@ -456,26 +520,36 @@ export default function ReportsPage() {
         {/* ---------------------------------------------------------------- */}
         {activeTab === 'occupancy' && (
           <div className="p-6 space-y-6">
-            {/* Building Breakdown Cards */}
+            {/* Building & Hotel Breakdown Cards */}
             <div>
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
-                Building & Floor Utilization Summary
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center justify-between">
+                <span>Property &amp; Floor Utilization Summary</span>
+                <span className="text-[11px] font-normal text-slate-500 lowercase">
+                  {(occupancyData?.summary || []).length} properties/blocks found
+                </span>
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {(occupancyData?.summary || []).map((bldg: any) => (
-                  <div key={`${bldg.building}-${bldg.floor}`} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                {(occupancyData?.summary || []).map((bldg: any, idx: number) => (
+                  <div key={bldg.groupTitle || idx} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 shadow-2xs">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-900 text-xs">
-                        {bldg.building} — Floor {bldg.floor}
-                      </span>
+                      <div>
+                        <span className="font-bold text-slate-900 text-xs block">
+                          {bldg.groupTitle || `${bldg.hotelName || bldg.building} — Floor ${bldg.floor}`}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          {bldg.hotelName || 'Property Block'}
+                        </span>
+                      </div>
                       <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
                         {bldg.utilizationRate}%
                       </span>
                     </div>
 
                     <div className="mt-3 flex items-center justify-between text-xs text-slate-600">
-                      <span>Occupied: <strong>{bldg.occupiedUnits}</strong> / {bldg.totalCapacity}</span>
-                      <span>Available: <strong>{bldg.availableUnits}</strong></span>
+                      <span>
+                        Occupied: <strong className="text-purple-700">{bldg.occupiedUnits}</strong> &bull; Reserved: <strong className="text-amber-700">{bldg.reservedUnits || 0}</strong>
+                      </span>
+                      <span>Available: <strong className="text-teal-700">{bldg.availableUnits}</strong></span>
                     </div>
 
                     <div className="mt-2 w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
@@ -486,7 +560,7 @@ export default function ReportsPage() {
                     </div>
 
                     <div className="mt-2 text-[10px] text-slate-400 flex items-center justify-between">
-                      <span>{bldg.totalBeds} Beds • {bldg.totalMats} Mats</span>
+                      <span>{bldg.totalBeds} Beds &bull; {bldg.totalMats} Mats</span>
                       <span>{bldg.totalRooms} Rooms</span>
                     </div>
                   </div>
@@ -502,7 +576,7 @@ export default function ReportsPage() {
                 </h3>
                 <input
                   type="text"
-                  placeholder="Filter room or building..."
+                  placeholder="Filter room, property, or building..."
                   value={roomFilterQuery}
                   onChange={(e) => setRoomFilterQuery(e.target.value)}
                   className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 max-w-xs"
@@ -514,9 +588,10 @@ export default function ReportsPage() {
                   <thead className="bg-slate-50 text-slate-600 font-semibold uppercase text-[10px]">
                     <tr>
                       <th className="py-2.5 px-3">Room</th>
-                      <th className="py-2.5 px-3">Building & Floor</th>
+                      <th className="py-2.5 px-3">Hotel Property</th>
+                      <th className="py-2.5 px-3">Building &amp; Floor</th>
                       <th className="py-2.5 px-3">Capacity</th>
-                      <th className="py-2.5 px-3">Occupied</th>
+                      <th className="py-2.5 px-3">Active (Occ / Res)</th>
                       <th className="py-2.5 px-3">Available</th>
                       <th className="py-2.5 px-3">Utilization</th>
                       <th className="py-2.5 px-3 text-right">Details</th>
@@ -534,14 +609,21 @@ export default function ReportsPage() {
                             <td className="py-2.5 px-3 font-bold text-slate-900">
                               {room.roomNumber}
                             </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                {room.hotelName || 'Main Property'}
+                              </span>
+                            </td>
                             <td className="py-2.5 px-3 text-slate-600">
-                              {room.building || 'Main'} • Floor {room.floor ?? 0}
+                              {room.building || 'Main'} &bull; Floor {room.floor ?? 0}
                             </td>
                             <td className="py-2.5 px-3 text-slate-700">
                               {room.totalCapacity} ({room.totalBeds}B, {room.totalMats}M)
                             </td>
-                            <td className="py-2.5 px-3 font-semibold text-purple-700">
-                              {room.occupiedUnits}
+                            <td className="py-2.5 px-3 font-semibold">
+                              <span className="text-purple-700">{room.occupiedUnits} Occ</span>
+                              <span className="text-slate-300 mx-1">&bull;</span>
+                              <span className="text-amber-700">{room.reservedUnits || 0} Res</span>
                             </td>
                             <td className="py-2.5 px-3 font-semibold text-teal-700">
                               {room.availableUnits}
@@ -563,22 +645,33 @@ export default function ReportsPage() {
                           {/* Expanded Occupants Drawer */}
                           {isExpanded && (
                             <tr className="bg-slate-50/70">
-                              <td colSpan={7} className="p-4">
+                              <td colSpan={8} className="p-4">
                                 <div className="text-xs font-semibold text-slate-700 mb-2">
-                                  Current Active Occupants in Room {room.roomNumber} ({room.occupants.length} persons):
+                                  Current Active Occupants &amp; Bookings in Room {room.roomNumber} ({room.occupants?.length || 0} assigned):
                                 </div>
-                                {room.occupants.length === 0 ? (
-                                  <p className="text-[11px] text-slate-400 italic">No occupants currently checked in to this room.</p>
+                                {(!room.occupants || room.occupants.length === 0) ? (
+                                  <p className="text-[11px] text-slate-400 italic">No occupants or reservations currently allocated to this room.</p>
                                 ) : (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                                     {room.occupants.map((occ: any, i: number) => (
-                                      <div key={i} className="p-2.5 rounded-lg bg-white border border-slate-200 text-xs">
-                                        <p className="font-semibold text-slate-900">{occ.fullName}</p>
+                                      <div key={i} className="p-2.5 rounded-lg bg-white border border-slate-200 text-xs shadow-2xs">
+                                        <div className="flex items-center justify-between gap-1 mb-1">
+                                          <p className="font-semibold text-slate-900 truncate">{occ.fullName}</p>
+                                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                            occ.status === 'RESERVED'
+                                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                          }`}>
+                                            {occ.status === 'RESERVED' ? 'Reserved' : 'Checked In'}
+                                          </span>
+                                        </div>
                                         <p className="text-[11px] text-slate-500">
-                                          {occ.type} {occ.unitNumber} • {occ.gender}
+                                          {occ.type} {occ.unitNumber} &bull; {occ.gender || 'Any'}
                                         </p>
                                         <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                                          Check-in: {new Date(occ.actualCheckIn).toLocaleDateString()} {new Date(occ.actualCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          {occ.actualCheckIn
+                                            ? `In: ${new Date(occ.actualCheckIn).toLocaleDateString()} ${new Date(occ.actualCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                                            : 'Pre-arrival reservation'}
                                         </p>
                                       </div>
                                     ))}
