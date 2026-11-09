@@ -9,7 +9,8 @@ import {
   updateUnit, 
   rewriteUnitStatus,
   deleteRoom,
-  deleteBulkRooms
+  deleteBulkRooms,
+  bulkAssignHotel
 } from '../controllers/room.controller';
 import { requireAuth, requireRole } from '../middlewares/auth';
 import { UserRole } from '@prisma/client';
@@ -63,6 +64,12 @@ router.post(
 );
 
 // Delete room (Super Admin and Allocation Manager)
+router.post(
+  '/bulk-assign-hotel',
+  requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]),
+  bulkAssignHotel
+);
+
 router.post(
   '/bulk-delete',
   requireRole([UserRole.SUPER_ADMIN, UserRole.ALLOCATION_MANAGER]),

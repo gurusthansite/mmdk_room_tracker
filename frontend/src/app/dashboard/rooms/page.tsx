@@ -191,6 +191,7 @@ export default function RoomsPage() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState<boolean>(false);
   const [selectedRoomIdsForBulk, setSelectedRoomIdsForBulk] = useState<string[]>([]);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+  const [bulkTargetHotelId, setBulkTargetHotelId] = useState<string>('');
 
   // Modal data states
   const [editingRoom, setEditingRoom] = useState<RoomListItem | null>(null);
@@ -684,6 +685,27 @@ export default function RoomsPage() {
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error executing bulk room deletion');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleExecuteBulkAssignHotel = async () => {
+    if (!bulkTargetHotelId || selectedRoomIdsForBulk.length === 0) return;
+    setActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await api.bulkAssignHotel(selectedRoomIdsForBulk, bulkTargetHotelId);
+      if (res.success) {
+        setSuccessMessage(res.message || `Assigned ${selectedRoomIdsForBulk.length} rooms to hotel.`);
+        setSelectedRoomIdsForBulk([]);
+        setBulkTargetHotelId('');
+        await fetchRooms();
+      } else {
+        setErrorMessage(res.message || 'Failed to assign hotel');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error assigning hotel');
     } finally {
       setActionLoading(false);
     }
@@ -1404,7 +1426,30 @@ export default function RoomsPage() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+              {/* Bulk Assign to Hotel */}
+              <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-300">
+                <Building className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <select
+                  value={bulkTargetHotelId}
+                  onChange={(e) => setBulkTargetHotelId(e.target.value)}
+                  className="text-xs bg-transparent border-none text-slate-800 font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value="">Select Hotel to Assign...</option>
+                  {hotels.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!bulkTargetHotelId || actionLoading}
+                  onClick={handleExecuteBulkAssignHotel}
+                  className="px-2.5 py-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-md transition"
+                >
+                  Assign
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setSelectedRoomIdsForBulk([])}

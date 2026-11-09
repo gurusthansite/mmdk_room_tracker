@@ -273,13 +273,14 @@ export async function getReportOverview(req: Request, res: Response) {
       const bookedUnits = r.units?.filter((u: any) => (u.stayRecords?.length || 0) > 0 || (u.allocationItems?.length || 0) > 0) || [];
       const freeBeds = r.units?.filter((u: any) => u.type === 'BED' && (u.stayRecords?.length || 0) === 0 && (u.allocationItems?.length || 0) === 0) || [];
       const freeMats = r.units?.filter((u: any) => u.type === 'MAT' && (u.stayRecords?.length || 0) === 0 && (u.allocationItems?.length || 0) === 0) || [];
+      const resolvedHotelName = r.hotel?.name || (r.building && r.building !== 'Main' ? r.building : null) || 'Main Property';
       return {
         roomId: r.id,
         hotelId: r.hotelId,
-        hotelName: r.hotel?.name || 'Main Property',
+        hotelName: resolvedHotelName,
         roomNumber: r.roomNumber,
         building: r.building,
-        floor: r.floor,
+        floor: r.floor ?? 1,
         category: r.genderPreference,
         totalUnits: r.units?.length || 0,
         bookedUnitsCount: bookedUnits.length,
@@ -420,18 +421,22 @@ export async function getOccupancyReport(req: Request, res: Response) {
     const buildingMap: Record<string, any> = {};
 
     const roomDetails = rooms.map((room) => {
-      const hotelName = room.hotel?.name || 'Main Property';
-      const bldg = room.building || null;
-      const flr = room.floor !== null && room.floor !== undefined ? `Floor ${room.floor}` : null;
-      const groupKey = bldg ? `${hotelName} • ${bldg}${flr ? ` (${flr})` : ''}` : (flr ? `${hotelName} • ${flr}` : hotelName);
+      const resolvedHotelName = room.hotel?.name || (room.building && room.building !== 'Main' ? room.building : null) || 'Main Property';
+      const bldg = room.building && room.building !== 'Main' ? room.building : null;
+      const flr = room.floor !== null && room.floor !== undefined && room.floor !== 0 ? `Floor ${room.floor}` : null;
+      
+      let groupKey = resolvedHotelName;
+      if (bldg && flr) groupKey = `${resolvedHotelName} • ${bldg} (${flr})`;
+      else if (bldg) groupKey = `${resolvedHotelName} • ${bldg}`;
+      else if (flr) groupKey = `${resolvedHotelName} • ${flr}`;
 
       if (!buildingMap[groupKey]) {
         buildingMap[groupKey] = {
           groupTitle: groupKey,
           hotelId: room.hotelId || 'DEFAULT',
-          hotelName,
-          building: bldg || hotelName,
-          floor: room.floor ?? 0,
+          hotelName: resolvedHotelName,
+          building: bldg || resolvedHotelName,
+          floor: room.floor ?? 1,
           totalRooms: 0,
           totalBeds: 0,
           totalMats: 0,
@@ -499,10 +504,10 @@ export async function getOccupancyReport(req: Request, res: Response) {
       return {
         id: room.id,
         hotelId: room.hotelId,
-        hotelName,
+        hotelName: resolvedHotelName,
         roomNumber: room.roomNumber,
         building: room.building,
-        floor: room.floor,
+        floor: room.floor ?? 1,
         genderPreference: room.genderPreference,
         status: room.status,
         totalBeds: roomBeds,

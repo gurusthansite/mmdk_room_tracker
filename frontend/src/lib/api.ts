@@ -892,6 +892,13 @@ class ApiClient {
     });
   }
 
+  async bulkAssignHotel(roomIds: string[], hotelId: string): Promise<ApiResponse<any>> {
+    return this.request<any>('/rooms/bulk-assign-hotel', {
+      method: 'POST',
+      body: JSON.stringify({ roomIds, hotelId }),
+    });
+  }
+
   // Registrations Management (Phase 5)
   async getRegistrations(params: {
     page?: number;

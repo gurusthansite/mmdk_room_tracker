@@ -611,11 +611,11 @@ export default function ReportsPage() {
                             </td>
                             <td className="py-2.5 px-3">
                               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                {room.hotelName || 'Main Property'}
+                                {room.hotelName || room.building || 'Main Property'}
                               </span>
                             </td>
                             <td className="py-2.5 px-3 text-slate-600">
-                              {room.building || 'Main'} &bull; Floor {room.floor ?? 0}
+                              {room.building && room.building !== room.hotelName ? `${room.building} • ` : ''}Floor {room.floor ?? 1}
                             </td>
                             <td className="py-2.5 px-3 text-slate-700">
                               {room.totalCapacity} ({room.totalBeds}B, {room.totalMats}M)

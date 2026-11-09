@@ -56,8 +56,9 @@ export function createApp() {
   // General DoS Protection Rate Limiting
   app.use('/api', generalApiRateLimiter);
 
-  // API router
+  // API router - Mount on both /api and / for proxy compatibility
   app.use('/api', apiRouter);
+  app.use('/', apiRouter);
 
   // Fallback 404
   app.use((req, res) => {

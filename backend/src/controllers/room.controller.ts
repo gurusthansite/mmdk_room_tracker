@@ -1403,3 +1403,47 @@ export async function deleteBulkRooms(req: Request, res: Response) {
     },
   });
 }
+
+/**
+ * 12. Bulk Assign Hotel / Property to Rooms
+ */
+export async function bulkAssignHotel(req: Request, res: Response) {
+  try {
+    const { roomIds, hotelId } = req.body;
+    if (!Array.isArray(roomIds) || roomIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'roomIds array required' });
+    }
+
+    let hotelName: string | null = null;
+    let targetHotelId: string | null = null;
+    if (hotelId && hotelId !== 'ALL' && hotelId !== 'NONE') {
+      const hotel = await prisma.hotel.findFirst({
+        where: {
+          OR: [
+            { id: hotelId },
+            { name: { equals: hotelId, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (hotel) {
+        targetHotelId = hotel.id;
+        hotelName = hotel.name;
+      }
+    }
+
+    await prisma.room.updateMany({
+      where: { id: { in: roomIds } },
+      data: {
+        hotelId: targetHotelId,
+        ...(hotelName ? { building: hotelName } : {}),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: `Updated ${roomIds.length} room(s) to ${hotelName || 'Main Property'}.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message || 'Error assigning hotel to rooms' });
+  }
+}

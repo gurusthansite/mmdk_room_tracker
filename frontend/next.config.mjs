@@ -7,11 +7,14 @@ const nextConfig = {
         'FATAL CONFIGURATION ERROR: INTERNAL_API_URL environment variable is mandatory in production to proxy /api requests to the Railway backend!'
       );
     }
-    const internalBackend = process.env.INTERNAL_API_URL || 'http://localhost:5000/api';
+    let internalBackend = process.env.INTERNAL_API_URL || 'http://localhost:5000/api';
+    if (!internalBackend.endsWith('/api')) {
+      internalBackend = `${internalBackend.replace(/\/$/, '')}/api`;
+    }
     return [
       {
         source: '/api/:path*',
-        destination: `${internalBackend.replace(/\/$/, '')}/:path*`,
+        destination: `${internalBackend}/:path*`,
       },
     ];
   },
