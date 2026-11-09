@@ -1193,10 +1193,33 @@ export default function ReceptionPage() {
         };
       });
 
-      const res = await api.batchChangeAssignment({
+      let res = await api.batchChangeAssignment({
         assignments,
         reason: changeReason.trim(),
       });
+
+      // Resilient Fallback: If backend deployment is in progress or returned 404 for batch route, fallback to classic /change-assignment
+      if (!res.success && res.message && (res.message.includes('Cannot POST') || res.message.includes('404'))) {
+        let allSuccess = true;
+        let lastError = '';
+        for (const item of assignments) {
+          const singleRes = await api.changeAssignment({
+            participantId: item.participantId || undefined,
+            allocationItemId: item.allocationItemId || undefined,
+            stayRecordId: item.stayRecordId || undefined,
+            newUnitId: item.newUnitId,
+            reason: changeReason.trim(),
+          });
+          if (!singleRes.success) {
+            allSuccess = false;
+            lastError = singleRes.message || 'Failed to update assignment';
+          }
+        }
+        res = {
+          success: allSuccess,
+          message: allSuccess ? `Successfully transferred ${assignments.length} guest assignment(s).` : lastError,
+        };
+      }
 
       if (res.success) {
         setSuccessMessage(res.message || `Successfully transferred ${assignments.length} guest assignment(s).`);
@@ -2392,9 +2415,9 @@ export default function ReceptionPage() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* FOUR PROMINENT TOUCH-FRIENDLY ACTION BUTTONS                       */}
+      {/* FIVE PROMINENT TOUCH-FRIENDLY ACTION BUTTONS                        */}
       {/* ------------------------------------------------------------------ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Action 1: New Registration & Room Assignment */}
         <button
           type="button"
@@ -2497,6 +2520,30 @@ export default function ReceptionPage() {
             </h3>
             <p className="text-xs text-rose-100 mt-1 leading-snug">
               Search staying guest &amp; release bed/mat back into inventory
+            </p>
+          </div>
+        </button>
+
+        {/* Action 5: Extend Stay */}
+        <button
+          type="button"
+          onClick={() => handleTabSwitch('CHECKED_IN')}
+          className="p-5 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-700 hover:from-cyan-700 hover:to-blue-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white">
+              <Calendar className="w-6 h-6" />
+            </div>
+            <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/20">
+              Action 5
+            </span>
+          </div>
+          <div className="mt-4">
+            <h3 className="text-base font-black leading-tight text-white group-hover:underline">
+              Extend Stay
+            </h3>
+            <p className="text-xs text-cyan-100 mt-1 leading-snug">
+              View currently staying guests &amp; extend checkout dates in 1 click
             </p>
           </div>
         </button>
