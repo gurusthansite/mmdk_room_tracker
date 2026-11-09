@@ -1239,6 +1239,14 @@ class ApiClient {
     });
   }
 
+  async extendStay(data: {
+    stayRecordId: string;
+    newExitDate: string;
+    notes?: string;
+  }): Promise<ApiResponse<any>> {
+    return this.extendParticipantStay(data);
+  }
+
   async changeAssignment(data: {
     participantId?: string;
     allocationItemId?: string;

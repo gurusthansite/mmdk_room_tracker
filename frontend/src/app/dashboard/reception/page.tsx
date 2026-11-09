@@ -499,6 +499,23 @@ export default function ReceptionPage() {
   const [phoneInputVal, setPhoneInputVal] = useState<string>('');
 
   // --------------------------------------------------------------------------
+  // EXTEND STAY MODAL STATE
+  // --------------------------------------------------------------------------
+  const [extendStayModalOpen, setExtendStayModalOpen] = useState<boolean>(false);
+  const [extendStayTarget, setExtendStayTarget] = useState<{
+    stayRecordId: string;
+    participantName: string;
+    roomNumber: string;
+    unitNumber: string;
+    unitType: string;
+    hotelName?: string;
+    currentExitDate?: string;
+  } | null>(null);
+  const [extendStayNewDate, setExtendStayNewDate] = useState<string>('');
+  const [extendStayNotes, setExtendStayNotes] = useState<string>('Stay extended per guest request');
+  const [extendStayLoading, setExtendStayLoading] = useState<boolean>(false);
+
+  // --------------------------------------------------------------------------
   // TOUCH-FRIENDLY QUICK ACTION MODAL STATES (CHECK IN, CHANGE ROOM, CHECK OUT)
   // --------------------------------------------------------------------------
   const [quickCheckInOpen, setQuickCheckInOpen] = useState<boolean>(false);
@@ -1241,6 +1258,66 @@ export default function ReceptionPage() {
       setErrorMessage(err.message || 'Error updating phone number.');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // 8. Extend Stay Duration for Checked-in Guest
+  const openExtendStayModal = (item: any) => {
+    const stayId = item.id || item.stayRecordId || item.stayId;
+    const pName = item.participant?.fullName || item.participantName || item.fullName || 'Guest';
+    const roomNum = item.unit?.room?.roomNumber || item.roomNumber || '—';
+    const unitNum = item.unit?.unitNumber || item.unitNumber || '—';
+    const uType = item.unit?.type || item.unitType || 'BED';
+    const hName = item.unit?.room?.hotel?.name || item.hotelName || item.unit?.room?.hotelName || 'Main Property';
+    const currentExit = item.exitDate || item.scheduledExit || item.actualCheckIn || new Date().toISOString();
+
+    const currExitDateObj = new Date(currentExit);
+    const nextDate = new Date(currExitDateObj.getTime() + 24 * 60 * 60 * 1000);
+    const defaultDateStr = nextDate.toISOString().slice(0, 10);
+
+    setExtendStayTarget({
+      stayRecordId: stayId,
+      participantName: pName,
+      roomNumber: roomNum,
+      unitNumber: unitNum,
+      unitType: uType,
+      hotelName: hName,
+      currentExitDate: currentExit,
+    });
+    setExtendStayNewDate(defaultDateStr);
+    setExtendStayNotes('Stay extended per guest request');
+    setExtendStayModalOpen(true);
+  };
+
+  const handleExecuteExtendStay = async () => {
+    if (!extendStayTarget || !extendStayNewDate) {
+      setErrorMessage('Please choose a valid new checkout date.');
+      return;
+    }
+    setExtendStayLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await api.extendStay({
+        stayRecordId: extendStayTarget.stayRecordId,
+        newExitDate: `${extendStayNewDate}T12:00:00.000Z`,
+        notes: extendStayNotes.trim() || undefined,
+      });
+
+      if (res.success) {
+        setSuccessMessage(`Stay extended for ${extendStayTarget.participantName} until ${new Date(extendStayNewDate).toLocaleDateString()}.`);
+        setExtendStayModalOpen(false);
+        setExtendStayTarget(null);
+        await fetchOverview();
+        if (dossier?.registration?.id) {
+          await openDossier(dossier.registration.id);
+        }
+      } else {
+        setErrorMessage(res.message || 'Failed to extend stay.');
+      }
+    } catch (e: any) {
+      setErrorMessage(e.message || 'Error processing stay extension.');
+    } finally {
+      setExtendStayLoading(false);
     }
   };
 
@@ -2878,6 +2955,15 @@ export default function ReceptionPage() {
                                   </button>
 
                                   <button
+                                    onClick={() => openExtendStayModal(item)}
+                                    className="px-2.5 py-1.5 text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition font-bold flex items-center gap-1 text-xs"
+                                    title="Extend stay duration for this guest"
+                                  >
+                                    <Calendar className="w-3.5 h-3.5" />
+                                    <span>Extend Stay</span>
+                                  </button>
+
+                                  <button
                                     onClick={() => handleCheckOut(item.id, item.participant?.fullName)}
                                     className="px-2.5 py-1.5 text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition font-bold flex items-center gap-1 text-xs"
                                     title="Check out guest and release bed/mat"
@@ -3075,6 +3161,15 @@ export default function ReceptionPage() {
                           >
                             <ArrowRightLeft className="w-4 h-4" />
                             <span>Change Room/Bed</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openExtendStayModal(item)}
+                            className="flex-1 min-h-[44px] px-3 py-2 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition font-bold flex items-center justify-center gap-1 text-xs active:scale-98"
+                            title="Extend stay"
+                          >
+                            <Calendar className="w-4 h-4" />
+                            <span>Extend</span>
                           </button>
                           <button
                             type="button"
@@ -3884,14 +3979,31 @@ export default function ReceptionPage() {
                                   )}
 
                                   {activeStay ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCheckOut(activeStay.id, participant.fullName)}
-                                      className="px-2.5 py-1 bg-white border border-rose-300 hover:bg-rose-50 rounded-lg text-xs font-semibold text-rose-700 flex items-center gap-1 transition shadow-2xs"
-                                    >
-                                      <LogOut className="w-3.5 h-3.5" />
-                                      Check Out
-                                    </button>
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => openExtendStayModal({
+                                          id: activeStay.id,
+                                          participant: { fullName: participant.fullName },
+                                          unit: (participant as any).assignedUnit || activeStay.unit,
+                                          exitDate: activeStay.scheduledExit || (dossier.registration as any).exitDate,
+                                        })}
+                                        className="px-2.5 py-1 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg text-xs font-semibold text-blue-700 flex items-center gap-1 transition shadow-2xs"
+                                        title="Extend stay duration"
+                                      >
+                                        <Calendar className="w-3.5 h-3.5" />
+                                        Extend Stay
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCheckOut(activeStay.id, participant.fullName)}
+                                        className="px-2.5 py-1 bg-white border border-rose-300 hover:bg-rose-50 rounded-lg text-xs font-semibold text-rose-700 flex items-center gap-1 transition shadow-2xs"
+                                      >
+                                        <LogOut className="w-3.5 h-3.5" />
+                                        Check Out
+                                      </button>
+                                    </>
                                   ) : (
                                     <span className="text-xs text-slate-400 italic">Not checked in</span>
                                   )}
@@ -4729,6 +4841,104 @@ export default function ReceptionPage() {
               >
                 {actionLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 Save Phone
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* MODAL: EXTEND STAY DURATION                                        */}
+      {/* ------------------------------------------------------------------ */}
+      {extendStayModalOpen && extendStayTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-5 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-900">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Extend Guest Stay</h3>
+                  <p className="text-[11px] text-slate-500">Update scheduled departure date and retain current unit</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExtendStayModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 font-bold text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Guest Name:</span>
+                <strong className="text-slate-900">{extendStayTarget.participantName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Assigned Unit:</span>
+                <span className="font-mono font-bold text-slate-800">
+                  Room {extendStayTarget.roomNumber} &bull; {extendStayTarget.unitType} {extendStayTarget.unitNumber}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Hotel / Building:</span>
+                <span className="text-slate-700 font-medium">{extendStayTarget.hotelName}</span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-200">
+                <span className="text-slate-500">Current Exit Date:</span>
+                <span className="font-semibold text-rose-600">
+                  {extendStayTarget.currentExitDate ? new Date(extendStayTarget.currentExitDate).toLocaleDateString() : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  New Checkout Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={extendStayNewDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setExtendStayNewDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase">
+                  Extension Reason / Notes
+                </label>
+                <input
+                  type="text"
+                  value={extendStayNotes}
+                  onChange={(e) => setExtendStayNotes(e.target.value)}
+                  placeholder="e.g. Guest requested additional night"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setExtendStayModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteExtendStay}
+                disabled={extendStayLoading || !extendStayNewDate}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {extendStayLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                Confirm Stay Extension
               </button>
             </div>
           </div>
@@ -5817,6 +6027,17 @@ export default function ReceptionPage() {
                             <Phone className="w-3.5 h-3.5" />
                           </a>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsOverdueModalOpen(false);
+                            openExtendStayModal(item);
+                          }}
+                          className="px-2.5 py-1.5 bg-blue-50 border border-blue-300 text-blue-700 hover:bg-blue-100 rounded-lg font-bold"
+                          title="Extend stay"
+                        >
+                          Extend
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

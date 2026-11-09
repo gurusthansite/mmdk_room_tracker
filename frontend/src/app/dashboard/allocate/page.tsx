@@ -982,9 +982,9 @@ export default function AllocatePage() {
 
     baseList.forEach((r) => {
       const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-      if (r.availableCount === r.totalUnitsInRoom && r.totalUnitsInRoom > 0) {
+      if (r.availableCount === r.totalUnitsInRoom || occ === 0) {
         counts['0']++;
-      } else if (r.availableCount === 0 || occ >= 90) {
+      } else if (r.availableCount === 0 || occ > 75) {
         counts['100']++;
       } else if (occ <= 25) {
         counts['25']++;
@@ -1045,12 +1045,12 @@ export default function AllocatePage() {
     if (occupancyFilter !== 'ALL') {
       if (occupancyFilter === '0') {
         // 0% Booked (100% Free - no occupied units)
-        list = list.filter((r) => r.availableCount === r.totalUnitsInRoom && r.totalUnitsInRoom > 0);
+        list = list.filter((r) => r.availableCount === r.totalUnitsInRoom || (r.occupancyPercentage ?? 0) === 0);
       } else if (occupancyFilter === '25') {
         // Partially booked up to 25%
         list = list.filter((r) => {
           const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-          return occ > 0 && occ <= 25;
+          return occ > 0 && occ <= 25 && r.availableCount < r.totalUnitsInRoom;
         });
       } else if (occupancyFilter === '50') {
         // 26% to 50% Booked
@@ -1062,11 +1062,14 @@ export default function AllocatePage() {
         // 51% to 75% Booked
         list = list.filter((r) => {
           const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
-          return occ > 50 && occ <= 75;
+          return occ > 50 && occ <= 75 && r.availableCount > 0;
         });
       } else if (occupancyFilter === '100') {
-        // 100% Full / Occupied (or >= 76% full with no free beds)
-        list = list.filter((r) => r.availableCount === 0 || (r.occupancyPercentage ?? 0) >= 90);
+        // 100% Full / Occupied (> 75% full or 0 free beds)
+        list = list.filter((r) => {
+          const occ = r.occupancyPercentage ?? (r.totalUnitsInRoom > 0 ? Math.round(((r.totalUnitsInRoom - r.availableCount) / r.totalUnitsInRoom) * 100) : 0);
+          return r.availableCount === 0 || occ > 75;
+        });
       }
     }
 
@@ -1971,12 +1974,20 @@ export default function AllocatePage() {
                           </span>
                         </div>
 
-                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                          <Building className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{currentFocusedRoom.hotelName || currentFocusedRoom.building || 'Main Facility'}</span>
-                          <span>&bull;</span>
-                          <span>Floor {currentFocusedRoom.floor ?? 1}</span>
-                        </p>
+                        <div className="text-xs text-slate-600 mt-1 flex items-center gap-2 flex-wrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-900 border border-blue-200">
+                            <Building className="w-3 h-3 text-blue-700" />
+                            <span>{currentFocusedRoom.hotelName || currentFocusedRoom.hotel?.name || 'Main Property'}</span>
+                          </span>
+                          {currentFocusedRoom.building && currentFocusedRoom.building !== (currentFocusedRoom.hotelName || currentFocusedRoom.hotel?.name) && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                              Block: {currentFocusedRoom.building}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            Floor {currentFocusedRoom.floor ?? 1}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Quick Select All Button */}
@@ -2197,15 +2208,14 @@ export default function AllocatePage() {
                               <span className="font-mono font-black text-slate-900 text-base">
                                 Room {room.roomNumber}
                               </span>
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
                                 {room.building || 'Main'} &bull; F{room.floor ?? 1}
                               </span>
                             </div>
-                            {room.hotelName && (
-                              <p className="text-[10px] text-slate-400 font-medium truncate max-w-[170px]">
-                                🏢 {room.hotelName}
-                              </p>
-                            )}
+                            <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                              <Building className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                              <span className="truncate max-w-[150px]">{room.hotelName || room.hotel?.name || 'Main Property'}</span>
+                            </span>
                           </div>
 
                           <div>
@@ -2348,10 +2358,21 @@ export default function AllocatePage() {
                   <div key={room.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-3">
                     {/* Room Header */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-900 text-sm">{room.roomNumber}</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700">
-                          {room.building || 'Main'} &bull; Floor {room.floor ?? 1}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-slate-900 text-sm bg-white px-2 py-0.5 rounded border border-slate-300">
+                          Room {room.roomNumber}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1 shadow-2xs">
+                          <Building className="w-3 h-3 text-blue-700" />
+                          <span>{room.hotelName || room.hotel?.name || 'Main Property'}</span>
+                        </span>
+                        {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700">
+                            Block: {room.building}
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          Floor {room.floor ?? 1}
                         </span>
                         {room.genderPreference === 'MALE' && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
