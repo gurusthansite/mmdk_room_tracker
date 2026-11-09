@@ -567,6 +567,14 @@ export default function ReceptionPage() {
   const [quickCheckOutSearch, setQuickCheckOutSearch] = useState<string>('');
   const [quickCheckOutTarget, setQuickCheckOutTarget] = useState<any | null>(null);
   const [quickCheckOutSelectedIds, setQuickCheckOutSelectedIds] = useState<string[]>([]);
+  // Enhanced Check-Out Modal Filters & Complete In-House List
+  const [quickCheckOutInHouseList, setQuickCheckOutInHouseList] = useState<any[]>([]);
+  const [quickCheckOutLoadingList, setQuickCheckOutLoadingList] = useState<boolean>(false);
+  const [quickCheckOutBuildingFilter, setQuickCheckOutBuildingFilter] = useState<string>('ALL');
+  const [quickCheckOutHotelFilter, setQuickCheckOutHotelFilter] = useState<string>('ALL');
+  const [quickCheckOutRoomSearch, setQuickCheckOutRoomSearch] = useState<string>('');
+  const [quickCheckOutGenderFilter, setQuickCheckOutGenderFilter] = useState<'ALL' | 'MALE' | 'FEMALE'>('ALL');
+  const [quickCheckOutUnitTypeFilter, setQuickCheckOutUnitTypeFilter] = useState<'ALL' | 'BED' | 'MAT'>('ALL');
 
   // --------------------------------------------------------------------------
   // HANDWRITTEN REFERENCE SKETCH AVAILABILITY SEARCH CONTROLS
@@ -942,6 +950,149 @@ export default function ReceptionPage() {
       notifyError(msg);
     } finally {
       setGroupCheckoutLoading(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // QUICK CHECK-OUT MODAL LOGIC & IN-HOUSE GUEST FILTERING
+  // --------------------------------------------------------------------------
+  const handleOpenQuickCheckOut = async () => {
+    setQuickCheckOutOpen(true);
+    setQuickCheckOutSearch('');
+    setQuickCheckOutBuildingFilter('ALL');
+    setQuickCheckOutHotelFilter('ALL');
+    setQuickCheckOutRoomSearch('');
+    setQuickCheckOutGenderFilter('ALL');
+    setQuickCheckOutUnitTypeFilter('ALL');
+    setQuickCheckOutSelectedIds([]);
+    setQuickCheckOutTarget(null);
+    setQuickCheckOutLoadingList(true);
+
+    try {
+      const res = await api.getReceptionOverview({
+        tab: 'CHECKED_IN',
+        limit: 500,
+      });
+      if (res.success && res.data?.records) {
+        setQuickCheckOutInHouseList(res.data.records);
+      } else {
+        const inHouse = records.filter(
+          (r) => r.status === 'CHECKED_IN' || r.status === 'EXTENDED' || (r.actualCheckIn && !r.actualCheckOut)
+        );
+        setQuickCheckOutInHouseList(inHouse);
+      }
+    } catch {
+      const inHouse = records.filter(
+        (r) => r.status === 'CHECKED_IN' || r.status === 'EXTENDED' || (r.actualCheckIn && !r.actualCheckOut)
+      );
+      setQuickCheckOutInHouseList(inHouse);
+    } finally {
+      setQuickCheckOutLoadingList(false);
+    }
+  };
+
+  const quickCheckOutAvailableBuildings = useMemo(() => {
+    const bldgs = new Set<string>();
+    quickCheckOutInHouseList.forEach((r) => {
+      const bldg = r.unit?.room?.building || r.unit?.room?.hotel?.name;
+      if (bldg && typeof bldg === 'string' && bldg.trim()) {
+        bldgs.add(bldg.trim());
+      }
+    });
+    return Array.from(bldgs).sort();
+  }, [quickCheckOutInHouseList]);
+
+  const filteredQuickCheckOutGuests = useMemo(() => {
+    return quickCheckOutInHouseList.filter((item) => {
+      // 1. Text search
+      if (quickCheckOutSearch.trim()) {
+        const q = quickCheckOutSearch.toLowerCase().trim();
+        const nameMatch = (item.participant?.fullName || item.registration?.primaryName || '').toLowerCase().includes(q);
+        const regMatch = (item.registration?.registrationId || '').toLowerCase().includes(q);
+        const roomMatch = (item.unit?.room?.roomNumber || '').toLowerCase().includes(q);
+        const bldgMatch = (item.unit?.room?.building || item.unit?.room?.hotel?.name || '').toLowerCase().includes(q);
+        const phoneMatch = (item.participant?.phone || item.registration?.mobile || '').includes(q);
+        if (!nameMatch && !regMatch && !roomMatch && !bldgMatch && !phoneMatch) return false;
+      }
+
+      // 2. Building filter
+      if (quickCheckOutBuildingFilter !== 'ALL') {
+        const bldg = (item.unit?.room?.building || item.unit?.room?.hotel?.name || '').trim().toLowerCase();
+        if (bldg !== quickCheckOutBuildingFilter.toLowerCase()) return false;
+      }
+
+      // 3. Hotel filter
+      if (quickCheckOutHotelFilter !== 'ALL') {
+        const hId = item.unit?.room?.hotelId || item.unit?.room?.hotel?.id;
+        if (hId !== quickCheckOutHotelFilter) return false;
+      }
+
+      // 4. Room search
+      if (quickCheckOutRoomSearch.trim()) {
+        const q = quickCheckOutRoomSearch.toLowerCase().trim();
+        const rNum = (item.unit?.room?.roomNumber || '').toLowerCase();
+        if (!rNum.includes(q)) return false;
+      }
+
+      // 5. Gender filter
+      if (quickCheckOutGenderFilter !== 'ALL') {
+        const g = item.participant?.gender || item.registration?.gender || item.unit?.room?.genderPreference;
+        if (g !== quickCheckOutGenderFilter) return false;
+      }
+
+      // 6. Unit type filter
+      if (quickCheckOutUnitTypeFilter !== 'ALL') {
+        if (item.unit?.type !== quickCheckOutUnitTypeFilter) return false;
+      }
+
+      return true;
+    });
+  }, [
+    quickCheckOutInHouseList,
+    quickCheckOutSearch,
+    quickCheckOutBuildingFilter,
+    quickCheckOutHotelFilter,
+    quickCheckOutRoomSearch,
+    quickCheckOutGenderFilter,
+    quickCheckOutUnitTypeFilter,
+  ]);
+
+  const handleExecuteQuickCheckOutSelected = async () => {
+    if (quickCheckOutSelectedIds.length === 0) {
+      notifyWarning('Please select at least one guest to check out.');
+      return;
+    }
+
+    const selectedStays = quickCheckOutInHouseList.filter((s) => quickCheckOutSelectedIds.includes(s.id));
+    const selectedNames = selectedStays.map((s) => s.participant?.fullName || s.registration?.primaryName).join(', ');
+
+    setActionLoading(true);
+    setGroupCheckOutLoading(true);
+    try {
+      const res = await api.batchCheckOutParticipants({
+        stayRecordIds: quickCheckOutSelectedIds,
+        notes: 'Reception quick check-out desk',
+      });
+
+      if (res.success) {
+        const msg = res.message || `Checked out ${quickCheckOutSelectedIds.length} guest(s) successfully: ${selectedNames}`;
+        setSuccessMessage(msg);
+        notifySuccess(msg);
+        setQuickCheckOutOpen(false);
+        setQuickCheckOutSelectedIds([]);
+        await fetchOverview();
+      } else {
+        const msg = res.message || 'Failed to complete checkout for selected guests.';
+        setErrorMessage(msg);
+        notifyError(msg);
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Error executing checkout.';
+      setErrorMessage(msg);
+      notifyError(msg);
+    } finally {
+      setActionLoading(false);
+      setGroupCheckOutLoading(false);
     }
   };
 
@@ -2817,7 +2968,7 @@ export default function ReceptionPage() {
         {/* Action 4: Check Out */}
         <button
           type="button"
-          onClick={() => setQuickCheckOutOpen(true)}
+          onClick={handleOpenQuickCheckOut}
           className="p-5 rounded-2xl bg-gradient-to-br from-rose-600 to-red-700 hover:from-rose-700 hover:to-red-800 text-white shadow-md hover:shadow-xl transition flex flex-col justify-between text-left active:scale-98 group"
         >
           <div className="flex items-center justify-between w-full">
@@ -3910,13 +4061,15 @@ export default function ReceptionPage() {
       {/* ------------------------------------------------------------------ */}
       {quickCheckOutOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 my-4 sm:my-8">
-            <div className="p-4 sm:p-5 bg-rose-600 text-white flex items-center justify-between shrink-0">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 my-4 sm:my-8">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-rose-600 via-rose-700 to-red-700 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <LogOut className="w-6 h-6" />
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <LogOut className="w-5 h-5 text-white" />
+                </div>
                 <div>
                   <h3 className="text-base font-black">Check Out Guest</h3>
-                  <p className="text-xs text-rose-100">Release occupied beds/mats back into active inventory</p>
+                  <p className="text-xs text-rose-100">Filter staying guests &amp; release occupied beds/mats back into active inventory</p>
                 </div>
               </div>
               <button
@@ -3926,66 +4079,207 @@ export default function ReceptionPage() {
                   setQuickCheckOutTarget(null);
                   setQuickCheckOutSearch('');
                 }}
-                className="text-rose-100 hover:text-white p-1 rounded-lg"
+                className="text-rose-100 hover:text-white p-1 rounded-lg hover:bg-white/10"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
+            <div className="p-4 sm:p-6 space-y-3.5 overflow-y-auto">
               {!quickCheckOutTarget ? (
                 <div className="space-y-3">
+                  {/* Search Bar */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Search Currently Staying Guest
                     </label>
                     <div className="relative">
-                      <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                      <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                       <input
                         type="text"
-                        placeholder="Type guest name, room number, or mobile..."
+                        placeholder="Search by guest name, room number, mobile, or registration ID..."
                         value={quickCheckOutSearch}
                         onChange={(e) => setQuickCheckOutSearch(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-300 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-slate-300 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-rose-500 shadow-xs"
                       />
+                      {quickCheckOutSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setQuickCheckOutSearch('')}
+                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    <div className="flex items-center justify-between pb-1">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        In-House Occupants ({records.filter((r) => r.actualCheckIn && !r.actualCheckOut).length}):
-                      </p>
-                      {records.filter((r) => r.actualCheckIn && !r.actualCheckOut).length > 0 && (
+                  {/* OCCUPANT & ROOM FILTERS */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Occupant &amp; Room Filters</span>
+                      </div>
+                      {(quickCheckOutBuildingFilter !== 'ALL' || quickCheckOutHotelFilter !== 'ALL' || quickCheckOutRoomSearch || quickCheckOutGenderFilter !== 'ALL' || quickCheckOutUnitTypeFilter !== 'ALL' || quickCheckOutSearch) && (
                         <button
                           type="button"
                           onClick={() => {
-                            const staying = records.filter((r) => r.actualCheckIn && !r.actualCheckOut);
-                            if (quickCheckOutSelectedIds.length === staying.length) {
-                              setQuickCheckOutSelectedIds([]);
+                            setQuickCheckOutBuildingFilter('ALL');
+                            setQuickCheckOutHotelFilter('ALL');
+                            setQuickCheckOutRoomSearch('');
+                            setQuickCheckOutGenderFilter('ALL');
+                            setQuickCheckOutUnitTypeFilter('ALL');
+                            setQuickCheckOutSearch('');
+                          }}
+                          className="text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:underline flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Clear Filters</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      {/* A. Search Room Number Filter */}
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={quickCheckOutRoomSearch}
+                          onChange={(e) => setQuickCheckOutRoomSearch(e.target.value)}
+                          placeholder="Room #..."
+                          className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1.5 focus:ring-rose-500 font-medium"
+                        />
+                        {quickCheckOutRoomSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setQuickCheckOutRoomSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* B. Building Name Filter */}
+                      <div>
+                        <select
+                          value={quickCheckOutBuildingFilter}
+                          onChange={(e) => setQuickCheckOutBuildingFilter(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 font-medium focus:outline-none focus:ring-1.5 focus:ring-rose-500"
+                        >
+                          <option value="ALL">🏢 All Buildings</option>
+                          {quickCheckOutAvailableBuildings.map((b) => (
+                            <option key={b} value={b}>🏢 {b}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* C. Gender Filter */}
+                      <div className="flex items-center rounded-lg bg-slate-200/80 p-0.5 text-xs">
+                        {(['ALL', 'MALE', 'FEMALE'] as const).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setQuickCheckOutGenderFilter(g)}
+                            className={`flex-1 py-1 text-[11px] font-bold rounded-md transition text-center ${
+                              quickCheckOutGenderFilter === g
+                                ? 'bg-white text-rose-700 shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {g === 'ALL' ? 'All' : g === 'MALE' ? 'Male' : 'Female'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* D. Unit Type Filter */}
+                      <div className="flex items-center rounded-lg bg-slate-200/80 p-0.5 text-xs">
+                        {(['ALL', 'BED', 'MAT'] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setQuickCheckOutUnitTypeFilter(t)}
+                            className={`flex-1 py-1 text-[11px] font-bold rounded-md transition text-center ${
+                              quickCheckOutUnitTypeFilter === t
+                                ? 'bg-white text-rose-700 shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {t === 'ALL' ? 'All' : t === 'BED' ? '🛏️ Bed' : '🧘 Mat'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* In-House List Header */}
+                  <div className="flex items-center justify-between pb-1 pt-1">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      In-House Occupants ({filteredQuickCheckOutGuests.length} matching • {quickCheckOutInHouseList.length} total):
+                    </p>
+                    {filteredQuickCheckOutGuests.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const filteredIds = filteredQuickCheckOutGuests.map((s) => s.id);
+                            const allFilteredSelected = filteredIds.every((id) => quickCheckOutSelectedIds.includes(id));
+                            if (allFilteredSelected) {
+                              setQuickCheckOutSelectedIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
                             } else {
-                              setQuickCheckOutSelectedIds(staying.map((s) => s.id));
+                              setQuickCheckOutSelectedIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
                             }
                           }}
                           className="text-xs font-bold text-rose-600 hover:text-rose-800 underline"
                         >
-                          {quickCheckOutSelectedIds.length > 0 ? 'Deselect All' : 'Select All'}
+                          {filteredQuickCheckOutGuests.every((s) => quickCheckOutSelectedIds.includes(s.id))
+                            ? 'Deselect All'
+                            : 'Select All'}
                         </button>
-                      )}
+                        {quickCheckOutSelectedIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setQuickCheckOutSelectedIds([])}
+                            className="text-xs font-medium text-slate-500 hover:text-slate-800 underline"
+                          >
+                            Clear ({quickCheckOutSelectedIds.length})
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* List Content */}
+                  {quickCheckOutLoadingList ? (
+                    <div className="p-8 text-center text-slate-500 flex flex-col items-center justify-center gap-2 border border-slate-200 rounded-xl bg-slate-50">
+                      <RefreshCw className="w-5 h-5 animate-spin text-rose-600" />
+                      <span className="text-xs font-medium">Loading currently in-house guests...</span>
                     </div>
-                    {records
-                      .filter((r) => r.actualCheckIn && !r.actualCheckOut)
-                      .filter((r) => {
-                        if (!quickCheckOutSearch.trim()) return true;
-                        const q = quickCheckOutSearch.toLowerCase();
-                        return (
-                          r.participant?.fullName?.toLowerCase().includes(q) ||
-                          r.registration?.primaryName?.toLowerCase().includes(q) ||
-                          r.unit?.room?.roomNumber?.toLowerCase().includes(q) ||
-                          r.registration?.mobile?.includes(q)
-                        );
-                      })
-                      .map((item) => {
+                  ) : filteredQuickCheckOutGuests.length === 0 ? (
+                    <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center space-y-2">
+                      <p className="text-xs text-slate-600 font-medium">
+                        No in-house guests match the active filters ({quickCheckOutInHouseList.length} total in-house guests loaded).
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuickCheckOutBuildingFilter('ALL');
+                          setQuickCheckOutHotelFilter('ALL');
+                          setQuickCheckOutRoomSearch('');
+                          setQuickCheckOutGenderFilter('ALL');
+                          setQuickCheckOutUnitTypeFilter('ALL');
+                          setQuickCheckOutSearch('');
+                        }}
+                        className="px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-rose-600 hover:bg-rose-50 transition"
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                      {filteredQuickCheckOutGuests.map((item) => {
                         const isSelected = quickCheckOutSelectedIds.includes(item.id);
                         return (
                           <div
@@ -4001,46 +4295,73 @@ export default function ReceptionPage() {
                                 : 'bg-slate-50 hover:bg-rose-50/50 border-slate-200'
                             }`}
                           >
-                            <div className="flex items-center gap-2.5">
+                            <div className="flex items-center gap-2.5 min-w-0">
                               <input
                                 type="checkbox"
                                 checked={isSelected}
                                 onChange={() => {}}
-                                className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 pointer-events-none"
+                                className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 pointer-events-none"
                               />
-                              <div>
-                                <p className="font-bold text-slate-900 text-xs">
-                                  {item.participant?.fullName || item.registration?.primaryName}
-                                </p>
-                                <p className="text-[11px] text-slate-500 font-mono">
-                                  Room {item.unit?.room?.roomNumber} &bull; {item.unit?.type === 'MAT' ? 'Mat' : 'Bed'} {item.unit?.unitNumber}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 truncate">
+                                  <p className="font-bold text-slate-900 text-xs truncate">
+                                    {item.participant?.fullName || item.registration?.primaryName}
+                                  </p>
+                                  {item.participant?.isPrimary && (
+                                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[9px] font-bold rounded shrink-0">
+                                      Primary
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                    {item.registration?.registrationId}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                  Room {item.unit?.room?.roomNumber} {item.unit?.room?.building ? `(${item.unit?.room?.building})` : ''} &bull; {item.unit?.type === 'MAT' ? '🧘 Mat' : '🛏️ Bed'} {item.unit?.unitNumber}
+                                  {(item.participant?.phone || item.registration?.mobile) && (
+                                    <span className="ml-2 text-slate-400">&bull; {item.participant?.phone || item.registration?.mobile}</span>
+                                  )}
                                 </p>
                               </div>
                             </div>
-                            <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                              isSelected ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-700'
-                            }`}>
-                              {isSelected ? '✓ Selected' : 'Select'}
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setQuickCheckOutTarget(item);
+                                }}
+                                className="px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 rounded-md transition"
+                                title="Inspect single guest checkout details"
+                              >
+                                Details
+                              </button>
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                                isSelected ? 'bg-rose-600 text-white shadow-2xs' : 'bg-slate-200 text-slate-700'
+                              }`}>
+                                {isSelected ? '✓ Selected' : 'Select'}
+                              </span>
+                            </div>
                           </div>
                         );
                       })}
-                  </div>
+                    </div>
+                  )}
 
+                  {/* Multi-Checkout Selected Action Button */}
                   {quickCheckOutSelectedIds.length > 0 && (
                     <div className="pt-2 border-t border-slate-200">
                       <button
                         type="button"
-                        disabled={groupCheckOutLoading}
-                        onClick={async () => {
-                          const ids = [...quickCheckOutSelectedIds];
-                          setQuickCheckOutOpen(false);
-                          setQuickCheckOutSelectedIds([]);
-                          await handleExecuteGroupCheckOut(ids, `${ids.length} selected guest(s)`);
-                        }}
+                        disabled={groupCheckOutLoading || actionLoading}
+                        onClick={handleExecuteQuickCheckOutSelected}
                         className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                       >
-                        {groupCheckOutLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogOut className="w-5 h-5" />}
+                        {(groupCheckOutLoading || actionLoading) ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <LogOut className="w-5 h-5" />
+                        )}
                         <span>Check Out {quickCheckOutSelectedIds.length} Selected Guest{quickCheckOutSelectedIds.length > 1 ? 's' : ''} Now</span>
                       </button>
                     </div>
