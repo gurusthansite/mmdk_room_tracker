@@ -567,6 +567,8 @@ export default function ReceptionPage() {
   const [quickCheckInOpen, setQuickCheckInOpen] = useState<boolean>(false);
   const [quickCheckInSearch, setQuickCheckInSearch] = useState<string>('');
   const [quickCheckInTarget, setQuickCheckInTarget] = useState<any | null>(null);
+  const [quickCheckInArrivingList, setQuickCheckInArrivingList] = useState<any[]>([]);
+  const [quickCheckInLoadingList, setQuickCheckInLoadingList] = useState<boolean>(false);
 
   const [quickCheckOutOpen, setQuickCheckOutOpen] = useState<boolean>(false);
   const [quickCheckOutSearch, setQuickCheckOutSearch] = useState<string>('');
@@ -956,6 +958,65 @@ export default function ReceptionPage() {
       notifyError(msg);
     } finally {
       setGroupCheckoutLoading(false);
+    }
+  };
+
+  // Helper: check if a record, registration, or allocation is already checked in
+  const isItemCheckedIn = (item: any): boolean => {
+    if (!item) return false;
+    if (item.status === 'CHECKED_IN' || item.status === 'EXTENDED') return true;
+    if (item.actualCheckIn && !item.actualCheckOut) return true;
+
+    const reg = item.registration || (item.participants ? item : null);
+    if (reg?.status === 'CHECKED_IN') return true;
+    if (reg?.participants && reg.participants.length > 0) {
+      const allCheckedIn = reg.participants.every((p: any) =>
+        p.checkInStatus === 'CHECKED_IN' || (p.stayRecords && p.stayRecords.length > 0)
+      );
+      if (allCheckedIn) return true;
+    }
+    return false;
+  };
+
+  // Helper: check if a record is partially checked in (some but not all members checked in)
+  const isItemPartiallyCheckedIn = (item: any): boolean => {
+    if (!item || isItemCheckedIn(item)) return false;
+    const reg = item.registration || (item.participants ? item : null);
+    if (reg?.participants && reg.participants.length > 1) {
+      const checkedInCount = reg.participants.filter((p: any) =>
+        p.checkInStatus === 'CHECKED_IN' || (p.stayRecords && p.stayRecords.length > 0)
+      ).length;
+      return checkedInCount > 0 && checkedInCount < reg.participants.length;
+    }
+    return false;
+  };
+
+  // --------------------------------------------------------------------------
+  // QUICK CHECK-IN MODAL LOGIC & ARRIVING GUEST FILTERING
+  // --------------------------------------------------------------------------
+  const handleOpenQuickCheckIn = async () => {
+    setQuickCheckInOpen(true);
+    setQuickCheckInTarget(null);
+    setQuickCheckInSearch('');
+    setQuickCheckInLoadingList(true);
+    try {
+      const res = await api.getReceptionOverview({
+        tab: 'TODAY_ARRIVALS',
+        arrivalStatus: 'EXPECTED',
+        limit: 200,
+      });
+      if (res.success && res.data?.records) {
+        const pending = res.data.records.filter((r: any) => !isItemCheckedIn(r));
+        setQuickCheckInArrivingList(pending);
+      } else {
+        const pending = records.filter((r: any) => !isItemCheckedIn(r));
+        setQuickCheckInArrivingList(pending);
+      }
+    } catch {
+      const pending = records.filter((r: any) => !isItemCheckedIn(r));
+      setQuickCheckInArrivingList(pending);
+    } finally {
+      setQuickCheckInLoadingList(false);
     }
   };
 
@@ -1827,10 +1888,25 @@ export default function ReceptionPage() {
       }
 
       const d = dossierRes.data;
+
+      // Check if all participants are already checked in
+      const unassignedParticipants = d.registration.participants.filter(
+        (p: any) => !p.activeStay && p.checkInStatus !== 'CHECKED_IN'
+      );
+      if (unassignedParticipants.length === 0) {
+        const msg = `${d.registration.primaryName} and all party members are already checked in.`;
+        setSuccessMessage(msg);
+        notifyInfo(msg);
+        setQuickCheckInOpen(false);
+        setQuickCheckInTarget(null);
+        await fetchOverview();
+        return;
+      }
+
       const pAssignments: any[] = [];
 
       d.registration.participants.forEach((p) => {
-        if (!p.activeStay) {
+        if (!p.activeStay && p.checkInStatus !== 'CHECKED_IN') {
           const allocItem = d.activeAllocation?.items?.find(
             (it: any) => it.participantId === p.id || !pAssignments.some((pa) => pa.unitId === it.unitId)
           );
@@ -1844,17 +1920,6 @@ export default function ReceptionPage() {
         }
       });
 
-      if (pAssignments.length === 0 && d.activeAllocation?.items?.[0]) {
-        const primary = d.registration.participants.find((p) => p.isPrimary) || d.registration.participants[0];
-        if (primary) {
-          pAssignments.push({
-            participantId: primary.id,
-            unitId: d.activeAllocation.items[0].unitId,
-            allocationItemId: d.activeAllocation.items[0].id,
-          });
-        }
-      }
-
       if (pAssignments.length > 0) {
         const checkRes = await api.checkInParticipants({
           registrationId: d.registration.id,
@@ -1863,19 +1928,26 @@ export default function ReceptionPage() {
         });
 
         if (checkRes.success) {
-          setSuccessMessage(`Check-In successful! ${d.registration.primaryName} is now checked into Room ${d.activeAllocation?.items?.[0]?.unit?.room?.roomNumber || 'assigned room'}.`);
+          const successMsg = `Check-In successful! ${d.registration.primaryName} is now checked into Room ${d.activeAllocation?.items?.[0]?.unit?.room?.roomNumber || 'assigned room'}.`;
+          setSuccessMessage(successMsg);
+          notifySuccess(successMsg);
           setQuickCheckInOpen(false);
           setQuickCheckInTarget(null);
+          setQuickCheckInArrivingList((prev) => prev.filter((r) => (r.registration?.id || r.id) !== regId));
           await fetchOverview();
         } else {
-          setErrorMessage(checkRes.message || 'Failed to execute check-in.');
+          const errMsg = checkRes.message || 'Failed to execute check-in.';
+          setErrorMessage(errMsg);
+          notifyError(errMsg);
         }
       } else {
         setQuickCheckInOpen(false);
         openDossier(regId);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error executing check-in.');
+      const errMsg = err.message || 'Error executing check-in.';
+      setErrorMessage(errMsg);
+      notifyError(errMsg);
     } finally {
       setActionLoading(false);
     }
@@ -2138,7 +2210,7 @@ export default function ReceptionPage() {
 
         <button
           type="button"
-          onClick={() => setQuickCheckInOpen(true)}
+          onClick={handleOpenQuickCheckIn}
           className="p-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
         >
           <CheckCircle2 className="w-4 h-4 text-emerald-100" />
@@ -2155,7 +2227,7 @@ export default function ReceptionPage() {
             } else if (records[0]) {
               handleLaunchChangeUnit(records[0]);
             } else {
-              setQuickCheckInOpen(true);
+              handleOpenQuickCheckIn();
             }
           }}
           className="p-3 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white rounded-xl shadow-xs transition flex flex-col items-center justify-center gap-1 min-h-[52px] text-center"
@@ -2336,17 +2408,24 @@ export default function ReceptionPage() {
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSearchDropdownOpen(false);
-                              handleExecuteQuickCheckIn(reg);
-                            }}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1 transition"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Check In</span>
-                          </button>
+                          {isItemCheckedIn(reg) ? (
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold flex items-center gap-1 border border-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Checked In</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchDropdownOpen(false);
+                                handleExecuteQuickCheckIn(reg);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1 transition"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Check In</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -3246,17 +3325,36 @@ export default function ReceptionPage() {
 
                       {/* Status */}
                       <td className="py-3.5 px-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          item.status === 'CHECKED_IN'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : item.status === 'CONFIRMED'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                            : item.status === 'TENTATIVE'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {item.status}
-                        </span>
+                        {isStay ? (
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            item.status === 'CHECKED_IN'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : item.status === 'EXTENDED'
+                              ? 'bg-cyan-100 text-cyan-800 border border-cyan-300'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {item.status === 'EXTENDED' ? 'Extended Stay' : item.status === 'CHECKED_IN' ? 'Checked In' : item.status}
+                          </span>
+                        ) : isItemCheckedIn(item) ? (
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>Checked In</span>
+                          </span>
+                        ) : isItemPartiallyCheckedIn(item) ? (
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-200 inline-flex items-center gap-1">
+                            <span>Partially In</span>
+                          </span>
+                        ) : (
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            item.status === 'CONFIRMED'
+                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                              : item.status === 'TENTATIVE'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {item.status === 'CONFIRMED' ? 'Expected Arrival' : item.status === 'TENTATIVE' ? 'Tentative Hold' : item.status}
+                          </span>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -3317,13 +3415,34 @@ export default function ReceptionPage() {
                             </>
                           ) : (
                             <>
-                              <button
-                                onClick={() => handleExecuteQuickCheckIn(item)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition flex items-center gap-1 text-xs"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Check In</span>
-                              </button>
+                              {!isItemCheckedIn(item) ? (
+                                <button
+                                  onClick={() => handleExecuteQuickCheckIn(item)}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition flex items-center gap-1 text-xs"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Check In</span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleTabSwitch('CHECKED_IN')}
+                                    className="px-2.5 py-1.5 text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition font-bold flex items-center gap-1 text-xs"
+                                    title="View active staying guests"
+                                  >
+                                    <Bed className="w-3.5 h-3.5" />
+                                    <span>Staying</span>
+                                  </button>
+                                  <button
+                                    onClick={() => openGroupCheckoutForRegistration(item)}
+                                    className="px-2.5 py-1.5 text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition font-bold flex items-center gap-1 text-xs"
+                                    title="Check out guests from this registration"
+                                  >
+                                    <LogOut className="w-3.5 h-3.5" />
+                                    <span>Check Out</span>
+                                  </button>
+                                </>
+                              )}
 
                               <button
                                 onClick={() => handleLaunchChangeUnit(item)}
@@ -3406,19 +3525,30 @@ export default function ReceptionPage() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
                         item.status === 'CHECKED_IN'
                           ? 'bg-emerald-100 text-emerald-800'
+                          : item.status === 'EXTENDED'
+                          ? 'bg-cyan-100 text-cyan-800'
                           : 'bg-slate-100 text-slate-700'
                       }`}>
-                        {item.status}
+                        {item.status === 'EXTENDED' ? 'Extended Stay' : item.status === 'CHECKED_IN' ? 'Checked In' : item.status}
+                      </span>
+                    ) : isItemCheckedIn(item) ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold shrink-0 bg-emerald-100 text-emerald-800 inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Checked In</span>
+                      </span>
+                    ) : isItemPartiallyCheckedIn(item) ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold shrink-0 bg-teal-100 text-teal-800">
+                        Partially In
                       </span>
                     ) : (
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
                         item.status === 'CONFIRMED'
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-blue-100 text-blue-800'
                           : item.status === 'TENTATIVE'
                           ? 'bg-amber-100 text-amber-800'
                           : 'bg-slate-100 text-slate-700'
                       }`}>
-                        {item.status}
+                        {item.status === 'CONFIRMED' ? 'Expected Arrival' : item.status === 'TENTATIVE' ? 'Tentative Hold' : item.status}
                       </span>
                     )}
                   </div>
@@ -3522,14 +3652,35 @@ export default function ReceptionPage() {
                       )
                     ) : (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => handleExecuteQuickCheckIn(item)}
-                          className="flex-1 min-h-[44px] px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs transition flex items-center justify-center gap-1.5 text-xs active:scale-98"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Check In</span>
-                        </button>
+                        {!isItemCheckedIn(item) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteQuickCheckIn(item)}
+                            className="flex-1 min-h-[44px] px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs transition flex items-center justify-center gap-1.5 text-xs active:scale-98"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Check In</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleTabSwitch('CHECKED_IN')}
+                              className="flex-1 min-h-[44px] px-3 py-2 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl font-bold transition flex items-center justify-center gap-1 text-xs active:scale-98"
+                            >
+                              <Bed className="w-4 h-4" />
+                              <span>Staying</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openGroupCheckoutForRegistration(item)}
+                              className="flex-1 min-h-[44px] px-3 py-2 text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl font-bold transition flex items-center justify-center gap-1 text-xs active:scale-98"
+                            >
+                              <LogOut className="w-4 h-4" />
+                              <span>Check Out</span>
+                            </button>
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleLaunchChangeUnit(item)}
@@ -3625,40 +3776,76 @@ export default function ReceptionPage() {
                   </div>
 
                   <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Arriving Guests Ready for Check-In ({records.filter((r) => !r.actualCheckIn).length}):
-                    </p>
-                    {records
-                      .filter((r) => !r.actualCheckIn)
-                      .filter((r) => {
-                        if (!quickCheckInSearch.trim()) return true;
-                        const q = quickCheckInSearch.toLowerCase();
+                    {quickCheckInLoadingList ? (
+                      <div className="p-8 text-center text-xs text-slate-500">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto text-emerald-600 mb-2" />
+                        <span>Loading arriving bookings ready for check-in...</span>
+                      </div>
+                    ) : (
+                      (() => {
+                        const availableArriving = quickCheckInArrivingList
+                          .filter((r) => !isItemCheckedIn(r))
+                          .filter((r) => {
+                            if (!quickCheckInSearch.trim()) return true;
+                            const q = quickCheckInSearch.toLowerCase();
+                            return (
+                              r.registration?.primaryName?.toLowerCase().includes(q) ||
+                              r.registration?.mobile?.includes(q) ||
+                              r.registration?.registrationId?.toLowerCase().includes(q) ||
+                              r.allocationNumber?.toLowerCase().includes(q) ||
+                              r.primaryName?.toLowerCase().includes(q) ||
+                              r.mobile?.includes(q) ||
+                              r.registrationId?.toLowerCase().includes(q)
+                            );
+                          });
+
                         return (
-                          r.registration?.primaryName?.toLowerCase().includes(q) ||
-                          r.registration?.mobile?.includes(q) ||
-                          r.registration?.registrationId?.toLowerCase().includes(q) ||
-                          r.allocationNumber?.toLowerCase().includes(q)
+                          <>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                              Arriving Guests Ready for Check-In ({availableArriving.length}):
+                            </p>
+                            {availableArriving.length === 0 ? (
+                              <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-200">
+                                {quickCheckInSearch.trim()
+                                  ? 'No matching arriving guests found for your search.'
+                                  : 'No pending arrivals ready for check-in. All expected guests have been checked in.'}
+                              </div>
+                            ) : (
+                              availableArriving.map((item) => {
+                                const reg = item.registration || item;
+                                const isPartial = isItemPartiallyCheckedIn(item);
+                                return (
+                                  <div
+                                    key={item.id}
+                                    onClick={() => setQuickCheckInTarget(item)}
+                                    className="p-3 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl cursor-pointer transition flex items-center justify-between"
+                                  >
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <p className="font-bold text-slate-900 text-xs">
+                                          {reg?.primaryName} ({reg?.totalMembers || 1} Person)
+                                        </p>
+                                        {isPartial && (
+                                          <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded text-[9px] font-bold">
+                                            Partial Arrival
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 font-mono">
+                                        Mobile: {reg?.mobile} &bull; {reg?.registrationId}
+                                      </p>
+                                    </div>
+                                    <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold">
+                                      Select
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </>
                         );
-                      })
-                      .map((item) => (
-                        <div
-                          key={item.id}
-                          onClick={() => setQuickCheckInTarget(item)}
-                          className="p-3 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl cursor-pointer transition flex items-center justify-between"
-                        >
-                          <div>
-                            <p className="font-bold text-slate-900 text-xs">
-                              {item.registration?.primaryName} ({item.registration?.totalMembers} Person)
-                            </p>
-                            <p className="text-[11px] text-slate-500 font-mono">
-                              Mobile: {item.registration?.mobile} &bull; {item.registration?.registrationId}
-                            </p>
-                          </div>
-                          <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold">
-                            Select
-                          </span>
-                        </div>
-                      ))}
+                      })()
+                    )}
                   </div>
                 </div>
               ) : (

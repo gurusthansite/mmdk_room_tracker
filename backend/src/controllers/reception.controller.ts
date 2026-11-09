@@ -182,6 +182,9 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
           entryDate: { lte: endOfToday },
           exitDate: { gte: startOfToday },
           isArchived: false,
+          registration: {
+            status: { notIn: [RegistrationStatus.CHECKED_IN, RegistrationStatus.CHECKED_OUT, RegistrationStatus.CANCELLED] },
+          },
         },
       }),
       // Tentative allocations awaiting reception
@@ -618,7 +621,7 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         if (arrivalStatus === 'CHECKED_IN') {
           allocWhere.registration = { status: RegistrationStatus.CHECKED_IN };
         } else if (arrivalStatus === 'EXPECTED') {
-          allocWhere.registration = { status: { not: RegistrationStatus.CHECKED_IN } };
+          allocWhere.registration = { status: { notIn: [RegistrationStatus.CHECKED_IN, RegistrationStatus.CHECKED_OUT, RegistrationStatus.CANCELLED] } };
         }
       }
 
