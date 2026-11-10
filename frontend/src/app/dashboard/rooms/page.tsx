@@ -917,15 +917,35 @@ export default function RoomsPage() {
   const getGenderBadge = (gender: GenderCategory | GenderPreference) => {
     switch (gender) {
       case 'MALE':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800">Male (M)</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white shadow-2xs">
+            👦 Male Room
+          </span>
+        );
       case 'FEMALE':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-pink-100 text-pink-800">Female (F)</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-600 text-white shadow-2xs">
+            👩 Female Room
+          </span>
+        );
       case 'FAMILY':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800">Family</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-600 text-white shadow-2xs">
+            👨‍👩‍👧‍👦 Family Room
+          </span>
+        );
       case 'GUEST':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-300">Guest</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-600 text-white shadow-2xs">
+            🌟 Guest Room
+          </span>
+        );
       default:
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">Any</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+            Flexible / Any
+          </span>
+        );
     }
   };
 
@@ -1533,16 +1553,37 @@ export default function RoomsPage() {
                 filteredRooms.map((room) => {
                   const isSelected = selectedRoomId === room.id;
                   const isBulkSelected = selectedRoomIdsForBulk.includes(room.id);
+                  const isMale = room.genderPreference === 'MALE';
+                  const isFemale = room.genderPreference === 'FEMALE';
+                  const isFamily = room.genderPreference === 'FAMILY';
+                  const isGuest = room.genderPreference === 'GUEST';
+
                   return (
                     <tr
                       key={room.id}
                       onClick={() => fetchRoomDetail(room.id)}
-                      className={`cursor-pointer transition-colors ${
+                      className={`cursor-pointer transition-colors border-l-4 ${
                         isBulkSelected
-                          ? 'bg-rose-50/60 hover:bg-rose-50'
-                          : isSelected 
-                             ? 'bg-blue-50/70 hover:bg-blue-50 border-l-4 border-l-blue-600 font-medium' 
-                            : 'hover:bg-slate-50'
+                          ? 'bg-rose-50/60 hover:bg-rose-50 border-l-rose-500'
+                          : isSelected
+                            ? isMale
+                              ? 'bg-blue-50/80 hover:bg-blue-50 border-l-blue-600 font-medium'
+                              : isFemale
+                              ? 'bg-rose-50/80 hover:bg-rose-50 border-l-rose-600 font-medium'
+                              : isFamily
+                              ? 'bg-purple-50/80 hover:bg-purple-50 border-l-purple-600 font-medium'
+                              : isGuest
+                              ? 'bg-amber-50/80 hover:bg-amber-50 border-l-amber-600 font-medium'
+                              : 'bg-slate-100 hover:bg-slate-50 border-l-slate-600 font-medium'
+                            : isMale
+                            ? 'hover:bg-blue-50/40 border-l-blue-400/80'
+                            : isFemale
+                            ? 'hover:bg-rose-50/40 border-l-rose-400/80'
+                            : isFamily
+                            ? 'hover:bg-purple-50/40 border-l-purple-400/80'
+                            : isGuest
+                            ? 'hover:bg-amber-50/40 border-l-amber-400/80'
+                            : 'hover:bg-slate-50 border-l-slate-300'
                       }`}
                     >
                       {/* Bulk Selection Checkbox */}
@@ -1711,7 +1752,7 @@ export default function RoomsPage() {
                   >
                     {filteredRooms.map((room) => (
                       <option key={room.id} value={room.id}>
-                        Room {room.roomNumber} ({room.genderPreference} • {room.totalBeds}B/{room.totalMats}M • Fl {room.floor ?? 1})
+                        Room {room.roomNumber} ({room.genderPreference === 'MALE' ? '👦 Male' : room.genderPreference === 'FEMALE' ? '👩 Female' : room.genderPreference} • {room.totalBeds}B/{room.totalMats}M • Fl {room.floor ?? 1})
                       </option>
                     ))}
                   </select>
@@ -1737,6 +1778,11 @@ export default function RoomsPage() {
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
                   {filteredRooms.map((room) => {
                     const isSelected = selectedRoomId === room.id;
+                    const isMale = room.genderPreference === 'MALE';
+                    const isFemale = room.genderPreference === 'FEMALE';
+                    const isFamily = room.genderPreference === 'FAMILY';
+                    const isGuest = room.genderPreference === 'GUEST';
+
                     return (
                       <button
                         key={room.id}
@@ -1744,7 +1790,23 @@ export default function RoomsPage() {
                         onClick={() => fetchRoomDetail(room.id)}
                         className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 min-h-[38px] ${
                           isSelected
-                            ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
+                            ? isMale
+                              ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
+                              : isFemale
+                              ? 'bg-rose-600 text-white shadow-xs ring-2 ring-rose-300'
+                              : isFamily
+                              ? 'bg-purple-600 text-white shadow-xs ring-2 ring-purple-300'
+                              : isGuest
+                              ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-300'
+                              : 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
+                            : isMale
+                            ? 'bg-blue-950/70 hover:bg-blue-900/90 text-blue-100 border border-blue-700/60'
+                            : isFemale
+                            ? 'bg-rose-950/70 hover:bg-rose-900/90 text-rose-100 border border-rose-700/60'
+                            : isFamily
+                            ? 'bg-purple-950/70 hover:bg-purple-900/90 text-purple-100 border border-purple-700/60'
+                            : isGuest
+                            ? 'bg-amber-950/70 hover:bg-amber-900/90 text-amber-100 border border-amber-700/60'
                             : 'bg-slate-800/90 hover:bg-slate-800 text-slate-300 border border-slate-700'
                         }`}
                       >
@@ -1770,7 +1832,17 @@ export default function RoomsPage() {
               ) : selectedRoomDetail ? (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   {/* Complete Room Summary Card */}
-                  <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 shadow-xs space-y-3">
+                  <div className={`rounded-2xl border-2 p-4 shadow-xs space-y-3 ${
+                    selectedRoomDetail.genderPreference === 'MALE'
+                      ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white'
+                      : selectedRoomDetail.genderPreference === 'FEMALE'
+                      ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white'
+                      : selectedRoomDetail.genderPreference === 'FAMILY'
+                      ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white'
+                      : selectedRoomDetail.genderPreference === 'GUEST'
+                      ? 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/50 via-white to-white'
+                      : 'border-slate-200 bg-white'
+                  }`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">

@@ -1880,7 +1880,7 @@ export default function AllocatePage() {
                     >
                       {displayedRooms.map((room) => (
                         <option key={room.id} value={room.id}>
-                          Room {room.roomNumber} ({room.genderPreference} &bull; {room.totalBeds ?? 0}B/{room.totalMats ?? 0}M &bull; Fl {room.floor ?? 1}) &bull; {room.availableCount} Free
+                          Room {room.roomNumber} ({room.genderPreference === 'MALE' ? '👦 Male' : room.genderPreference === 'FEMALE' ? '👩 Female' : room.genderPreference} &bull; {room.totalBeds ?? 0}B/{room.totalMats ?? 0}M &bull; Fl {room.floor ?? 1}) &bull; {room.availableCount} Free
                         </option>
                       ))}
                     </select>
@@ -1908,6 +1908,10 @@ export default function AllocatePage() {
                     {displayedRooms.map((room) => {
                       const isSelected = currentFocusedRoom?.id === room.id;
                       const hasSelectedUnits = room.units.some((u) => selectedUnits.some((su) => su.unitId === u.id));
+                      const isMale = room.genderPreference === 'MALE';
+                      const isFemale = room.genderPreference === 'FEMALE';
+                      const isFamily = room.genderPreference === 'FAMILY';
+                      const isGuest = room.genderPreference === 'GUEST';
 
                       return (
                         <button
@@ -1916,7 +1920,23 @@ export default function AllocatePage() {
                           onClick={() => setFocusedRoomId(room.id)}
                           className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 min-h-[38px] ${
                             isSelected
-                              ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                              ? isMale
+                                ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                                : isFemale
+                                ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-300'
+                                : isFamily
+                                ? 'bg-purple-600 text-white shadow-md ring-2 ring-purple-300'
+                                : isGuest
+                                ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-300'
+                                : 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                              : isMale
+                              ? 'bg-blue-950/70 hover:bg-blue-900/90 text-blue-100 border border-blue-700/60'
+                              : isFemale
+                              ? 'bg-rose-950/70 hover:bg-rose-900/90 text-rose-100 border border-rose-700/60'
+                              : isFamily
+                              ? 'bg-purple-950/70 hover:bg-purple-900/90 text-purple-100 border border-purple-700/60'
+                              : isGuest
+                              ? 'bg-amber-950/70 hover:bg-amber-900/90 text-amber-100 border border-amber-700/60'
                               : 'bg-slate-800/90 hover:bg-slate-800 text-slate-300 border border-slate-700'
                           }`}
                         >
@@ -1944,7 +1964,17 @@ export default function AllocatePage() {
 
                 {/* 2. Selected Room Complete Detail Card & Bed Allocator */}
                 {currentFocusedRoom && (
-                  <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-150">
+                  <div className={`rounded-2xl border-2 p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-150 ${
+                    currentFocusedRoom.genderPreference === 'MALE'
+                      ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white'
+                      : currentFocusedRoom.genderPreference === 'FEMALE'
+                      ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white'
+                      : currentFocusedRoom.genderPreference === 'FAMILY'
+                      ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white'
+                      : currentFocusedRoom.genderPreference === 'GUEST'
+                      ? 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/50 via-white to-white'
+                      : 'border-slate-200 bg-white'
+                  }`}>
                     {/* Room Header */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
@@ -1955,28 +1985,28 @@ export default function AllocatePage() {
 
                           {/* Category Badge */}
                           {currentFocusedRoom.genderPreference === 'MALE' && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                              👦 Male (M)
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-2xs">
+                              👦 Male Room
                             </span>
                           )}
                           {currentFocusedRoom.genderPreference === 'FEMALE' && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-pink-100 text-pink-800 border border-pink-200">
-                              👩 Female (F)
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-rose-600 text-white shadow-2xs">
+                              👩 Female Room
                             </span>
                           )}
                           {currentFocusedRoom.genderPreference === 'FAMILY' && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                              👨‍👩‍👧‍👦 Family
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-purple-600 text-white shadow-2xs">
+                              👨‍👩‍👧‍👦 Family Room
                             </span>
                           )}
                           {currentFocusedRoom.genderPreference === 'GUEST' && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                              🌟 Guest
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-600 text-white shadow-2xs">
+                              🌟 Guest Room
                             </span>
                           )}
                           {currentFocusedRoom.genderPreference === 'ANY' && (
-                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700">
-                              Flexible
+                            <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-200 text-slate-800">
+                              Flexible / Any
                             </span>
                           )}
 
@@ -2206,11 +2236,25 @@ export default function AllocatePage() {
                   const occPercent = room.occupancyPercentage ?? (room.totalUnitsInRoom > 0 ? Math.round(((room.totalUnitsInRoom - room.availableCount) / room.totalUnitsInRoom) * 100) : 0);
                   const freeUnits = room.units.filter((u) => u.isAvailable);
                   const allAvailableSelected = freeUnits.length > 0 && freeUnits.every((u) => selectedUnits.some((su) => su.unitId === u.id));
+                  const isMale = room.genderPreference === 'MALE';
+                  const isFemale = room.genderPreference === 'FEMALE';
+                  const isFamily = room.genderPreference === 'FAMILY';
+                  const isGuest = room.genderPreference === 'GUEST';
 
                   return (
                     <div
                       key={room.id}
-                      className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-md transition space-y-3 flex flex-col justify-between"
+                      className={`p-3.5 rounded-xl border-2 transition space-y-3 flex flex-col justify-between shadow-2xs hover:shadow-md ${
+                        isMale
+                          ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/60 via-white to-white hover:border-blue-400'
+                          : isFemale
+                          ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/60 via-white to-white hover:border-rose-400'
+                          : isFamily
+                          ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/60 via-white to-white hover:border-purple-400'
+                          : isGuest
+                          ? 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/60 via-white to-white hover:border-amber-400'
+                          : 'border-slate-200 bg-white hover:border-blue-400'
+                      }`}
                     >
                       <div>
                         {/* Header: Room Number + Building / Floor + Category */}
@@ -2231,29 +2275,29 @@ export default function AllocatePage() {
                           </div>
 
                           <div>
-                            {room.genderPreference === 'MALE' && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap">
-                                👦 Male
+                            {isMale && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white shadow-2xs whitespace-nowrap">
+                                👦 Male Room
                               </span>
                             )}
-                            {room.genderPreference === 'FEMALE' && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-800 border border-pink-200 whitespace-nowrap">
-                                👩 Female
+                            {isFemale && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shadow-2xs whitespace-nowrap">
+                                👩 Female Room
                               </span>
                             )}
-                            {room.genderPreference === 'FAMILY' && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 whitespace-nowrap">
-                                👨‍👩‍👧‍👦 Family
+                            {isFamily && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-2xs whitespace-nowrap">
+                                👨‍👩‍👧‍👦 Family Room
                               </span>
                             )}
-                            {room.genderPreference === 'GUEST' && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
-                                🌟 Guest
+                            {isGuest && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white shadow-2xs whitespace-nowrap">
+                                🌟 Guest Room
                               </span>
                             )}
-                            {room.genderPreference === 'ANY' && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 whitespace-nowrap">
-                                Flexible
+                            {!isMale && !isFemale && !isFamily && !isGuest && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-800 whitespace-nowrap">
+                                Flexible / Any
                               </span>
                             )}
                           </div>
@@ -2366,53 +2410,73 @@ export default function AllocatePage() {
               /* VIEW 2: DETAILED BED GRID (Classic Full Width View)              */
               /* ================================================================ */
               <div className="space-y-6">
-                {displayedRooms.map((room) => (
-                  <div key={room.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/40 space-y-3">
-                    {/* Room Header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono font-bold text-slate-900 text-sm bg-white px-2 py-0.5 rounded border border-slate-300">
-                          Room {room.roomNumber}
-                        </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1 shadow-2xs">
-                          <Building className="w-3 h-3 text-blue-700" />
-                          <span>{room.hotelName || room.hotel?.name || 'Main Property'}</span>
-                        </span>
-                        {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700">
-                            Block: {room.building}
+                {displayedRooms.map((room) => {
+                  const isMale = room.genderPreference === 'MALE';
+                  const isFemale = room.genderPreference === 'FEMALE';
+                  const isFamily = room.genderPreference === 'FAMILY';
+                  const isGuest = room.genderPreference === 'GUEST';
+
+                  return (
+                    <div
+                      key={room.id}
+                      className={`p-4 rounded-xl border-2 space-y-3 shadow-2xs ${
+                        isMale
+                          ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white'
+                          : isFemale
+                          ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white'
+                          : isFamily
+                          ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white'
+                          : isGuest
+                          ? 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/50 via-white to-white'
+                          : 'border-slate-200 bg-slate-50/40'
+                      }`}
+                    >
+                      {/* Room Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-slate-900 text-sm bg-white px-2 py-0.5 rounded border border-slate-300">
+                            Room {room.roomNumber}
                           </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                          Floor {room.floor ?? 1}
-                        </span>
-                        {room.genderPreference === 'MALE' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                            👦 Male Room
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1 shadow-2xs">
+                            <Building className="w-3 h-3 text-blue-700" />
+                            <span>{room.hotelName || room.hotel?.name || 'Main Property'}</span>
                           </span>
-                        )}
-                        {room.genderPreference === 'FEMALE' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-100 text-pink-800 border border-pink-200">
-                            👩 Female Room
+                          {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-700">
+                              Block: {room.building}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            Floor {room.floor ?? 1}
                           </span>
-                        )}
-                        {room.genderPreference === 'FAMILY' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                            👨‍👩‍👧‍👦 Family Room
-                          </span>
-                        )}
-                        {room.genderPreference === 'GUEST' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                            🌟 Guest Room
-                          </span>
-                        )}
-                        {room.genderPreference === 'ANY' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                            Flexible / Any
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
+                          {isMale && (
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white shadow-2xs">
+                              👦 Male Room
+                            </span>
+                          )}
+                          {isFemale && (
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white shadow-2xs">
+                              👩 Female Room
+                            </span>
+                          )}
+                          {isFamily && (
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-2xs">
+                              👨‍👩‍👧‍👦 Family Room
+                            </span>
+                          )}
+                          {isGuest && (
+                            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white shadow-2xs">
+                              🌟 Guest Room
+                            </span>
+                          )}
+                          {!isMale && !isFemale && !isFamily && !isGuest && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 text-slate-800">
+                              Flexible / Any
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
                         <button
                           type="button"
                           onClick={() => handleSelectAllInRoom(room)}
@@ -2518,7 +2582,8 @@ export default function AllocatePage() {
                       })}
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
           </div>

@@ -5339,34 +5339,54 @@ export default function ReceptionPage() {
                     const availMats = room.availableMats ?? room.units.filter((u: any) => u.isAvailable && u.type === 'MAT').length;
                     const hasAvailableUnits = (room.availableCount ?? 0) > 0 || (availBeds + availMats) > 0;
 
-                    return (
-                      <div
-                        key={room.id}
-                        className={`p-3 rounded-xl border transition ${
-                          hasAvailableUnits ? 'bg-white border-slate-200 shadow-2xs' : 'bg-slate-50 border-slate-200 opacity-60'
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-bold text-sm text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
-                              Room {room.roomNumber}
-                            </span>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1">
-                              <Building className="w-3 h-3 text-blue-700" />
-                              <span>{room.hotelName || room.hotel?.name || room.building || 'Main Property'}</span>
-                            </span>
-                            {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
-                              <span className="text-[11px] text-slate-600 font-semibold">
-                                &bull; {room.building}
+                      const isMale = room.genderPreference === 'MALE';
+                      const isFemale = room.genderPreference === 'FEMALE';
+                      const isFamily = room.genderPreference === 'FAMILY';
+
+                      return (
+                        <div
+                          key={room.id}
+                          className={`p-3 rounded-xl border-2 transition ${
+                            !hasAvailableUnits
+                              ? 'bg-slate-50 border-slate-200 opacity-60'
+                              : isMale
+                              ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white shadow-2xs'
+                              : isFemale
+                              ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white shadow-2xs'
+                              : isFamily
+                              ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white shadow-2xs'
+                              : 'bg-white border-slate-200 shadow-2xs'
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-sm text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                                Room {room.roomNumber}
                               </span>
-                            )}
-                            <span className="text-[11px] text-slate-500 font-medium">
-                              &bull; Floor {room.floor ?? '-'}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                              {room.genderPreference}
-                            </span>
-                          </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1">
+                                <Building className="w-3 h-3 text-blue-700" />
+                                <span>{room.hotelName || room.hotel?.name || room.building || 'Main Property'}</span>
+                              </span>
+                              {room.building && room.building !== (room.hotelName || room.hotel?.name) && (
+                                <span className="text-[11px] text-slate-600 font-semibold">
+                                  &bull; {room.building}
+                                </span>
+                              )}
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                &bull; Floor {room.floor ?? '-'}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                                isMale
+                                  ? 'bg-blue-600 text-white'
+                                  : isFemale
+                                  ? 'bg-rose-600 text-white'
+                                  : isFamily
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}>
+                                {isMale ? '👦 Male Room' : isFemale ? '👩 Female Room' : isFamily ? '👨‍👩‍👧‍👦 Family' : room.genderPreference}
+                              </span>
+                            </div>
 
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="font-semibold text-blue-700">
@@ -5909,13 +5929,26 @@ export default function ReceptionPage() {
                       const availMats = room.availableMats ?? room.units.filter((u) => u.isAvailable && u.type === 'MAT').length;
                       const hasAvailableUnits = room.availableCount > 0;
 
+                      const isMale = room.genderPreference === 'MALE';
+                      const isFemale = room.genderPreference === 'FEMALE';
+                      const isFamily = room.genderPreference === 'FAMILY';
+                      const isGuest = room.genderPreference === 'GUEST';
+
                       return (
                         <div
                           key={room.id}
-                          className={`p-3.5 rounded-xl border transition ${
-                            hasAvailableUnits
-                              ? 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          className={`p-3.5 rounded-xl border-2 transition ${
+                            !hasAvailableUnits
+                              ? 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                              : isMale
+                              ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white shadow-xs'
+                              : isFemale
+                              ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white shadow-xs'
+                              : isFamily
+                              ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white shadow-xs'
+                              : isGuest
+                              ? 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/50 via-white to-white shadow-xs'
+                              : 'bg-white border-slate-200 shadow-xs'
                           }`}
                         >
                           {/* Room Header with Category & Available Breakdown */}
@@ -5927,16 +5960,16 @@ export default function ReceptionPage() {
                               <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
                                 {room.building || 'Main'} &bull; Floor {room.floor ?? 1}
                               </span>
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                room.genderPreference === 'MALE'
-                                  ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                                  : room.genderPreference === 'FEMALE'
-                                  ? 'bg-pink-100 text-pink-800 border border-pink-200'
-                                  : room.genderPreference === 'FAMILY'
-                                  ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                  : 'bg-amber-100 text-amber-800 border border-amber-200'
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                                isMale
+                                  ? 'bg-blue-600 text-white'
+                                  : isFemale
+                                  ? 'bg-rose-600 text-white'
+                                  : isFamily
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-amber-600 text-white'
                               }`}>
-                                {room.genderPreference} Room
+                                {isMale ? '👦 Male Room' : isFemale ? '👩 Female Room' : isFamily ? '👨‍👩‍👧‍👦 Family Room' : '🌟 Guest Room'}
                               </span>
                             </div>
 
@@ -6472,20 +6505,32 @@ export default function ReceptionPage() {
                 ) : (
                   <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                     {filteredRecoveryRooms.map((room) => {
+                      const isMale = room.genderPreference === 'MALE';
+                      const isFemale = room.genderPreference === 'FEMALE';
+
                       return (
-                        <div key={room.id} className="p-3 bg-white border border-slate-200 rounded-xl space-y-2">
+                        <div
+                          key={room.id}
+                          className={`p-3 rounded-xl border-2 space-y-2 shadow-2xs ${
+                            isMale
+                              ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white'
+                              : isFemale
+                              ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-bold text-slate-900">
                               Room {room.roomNumber} {room.building ? `(${room.building})` : ''}
                             </span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              room.genderPreference === 'MALE'
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                : room.genderPreference === 'FEMALE'
-                                ? 'bg-pink-50 text-pink-700 border border-pink-200'
-                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                              isMale
+                                ? 'bg-blue-600 text-white'
+                                : isFemale
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-slate-200 text-slate-700'
                             }`}>
-                              {room.genderPreference}
+                              {isMale ? '👦 Male' : isFemale ? '👩 Female' : room.genderPreference}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
@@ -7563,11 +7608,23 @@ export default function ReceptionPage() {
                         const availMats = room.availableMats ?? room.units.filter((u) => u.isAvailable && u.type === 'MAT').length;
                         const totalFree = availBeds + availMats;
 
+                        const isMale = room.genderPreference === 'MALE';
+                        const isFemale = room.genderPreference === 'FEMALE';
+                        const isFamily = room.genderPreference === 'FAMILY';
+
                         return (
                           <div
                             key={room.id}
                             className={`p-3.5 rounded-xl border-2 transition ${
-                              totalFree > 0 ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'
+                              totalFree === 0
+                                ? 'bg-slate-50 border-slate-200 opacity-60'
+                                : isMale
+                                ? 'border-blue-200 border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-50/50 via-white to-white shadow-xs'
+                                : isFemale
+                                ? 'border-rose-200 border-l-4 border-l-rose-500 bg-gradient-to-br from-rose-50/50 via-white to-white shadow-xs'
+                                : isFamily
+                                ? 'border-purple-200 border-l-4 border-l-purple-600 bg-gradient-to-br from-purple-50/50 via-white to-white shadow-xs'
+                                : 'border-amber-200 border-l-4 border-l-amber-500 bg-gradient-to-br from-amber-50/50 via-white to-white shadow-xs'
                             }`}
                           >
                             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -7579,16 +7636,16 @@ export default function ReceptionPage() {
                                   {room.building ? `${room.building} &bull; ` : ''}Floor {room.floor ?? '-'}
                                 </p>
                               </div>
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                room.genderPreference === 'FEMALE'
-                                  ? 'bg-pink-100 text-pink-800'
-                                  : room.genderPreference === 'MALE'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : room.genderPreference === 'FAMILY'
-                                  ? 'bg-purple-100 text-purple-800'
-                                  : 'bg-amber-100 text-amber-900'
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                                isFemale
+                                  ? 'bg-rose-600 text-white'
+                                  : isMale
+                                  ? 'bg-blue-600 text-white'
+                                  : isFamily
+                                  ? 'bg-purple-600 text-white'
+                                  : 'bg-amber-600 text-white'
                               }`}>
-                                {room.genderPreference === 'FEMALE' ? 'Ladies' : room.genderPreference === 'MALE' ? 'Gents' : room.genderPreference}
+                                {isFemale ? '👩 Female Room' : isMale ? '👦 Male Room' : isFamily ? '👨‍👩‍👧‍👦 Family' : room.genderPreference}
                               </span>
                             </div>
 
