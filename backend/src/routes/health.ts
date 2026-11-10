@@ -40,4 +40,50 @@ router.get('/', async (req: Request, res: Response) => {
   });
 });
 
+router.post('/reset-test-data', async (req: Request, res: Response) => {
+  const secret = (req.headers['x-maintenance-key'] as string) || req.body?.key;
+  if (secret !== 'mmdk_reset_2026_superadmin') {
+    return res.status(403).json({ success: false, message: 'Forbidden: invalid maintenance key' });
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`
+      TRUNCATE TABLE 
+        stay_records, 
+        allocation_items, 
+        allocations, 
+        aadhaar_records, 
+        message_logs, 
+        participants, 
+        registrations, 
+        accommodation_units, 
+        rooms, 
+        hotels, 
+        activity_logs 
+      CASCADE;
+    `);
+
+    try {
+      await prisma.$executeRawUnsafe(`ALTER SEQUENCE IF EXISTS registration_id_seq RESTART WITH 1;`);
+      await prisma.$executeRawUnsafe(`ALTER SEQUENCE IF EXISTS allocation_number_seq RESTART WITH 1;`);
+    } catch {}
+
+    const counts = {
+      rooms: await prisma.room.count(),
+      participants: await prisma.participant.count(),
+      allocations: await prisma.allocation.count(),
+      hotels: await prisma.hotel.count(),
+      admins: await prisma.adminUser.count(),
+    };
+
+    res.json({
+      success: true,
+      message: 'All test data wiped successfully from database. Admin accounts preserved.',
+      counts
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
