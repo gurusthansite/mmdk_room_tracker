@@ -212,7 +212,26 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
       prisma.stayRecord.count({
         where: {
           status: { in: [StayStatus.CHECKED_IN, StayStatus.EXTENDED] },
-          actualCheckIn: { lte: endOfToday },
+          actualCheckOut: null,
+          OR: [
+            {
+              allocationItem: {
+                exitDate: { gte: startOfToday, lte: endOfToday },
+              },
+            },
+            {
+              allocationItemId: null,
+              registration: {
+                allocations: {
+                  some: {
+                    isArchived: false,
+                    status: { not: AllocationStatus.CANCELLED },
+                    exitDate: { gte: startOfToday, lte: endOfToday },
+                  },
+                },
+              },
+            },
+          ],
         },
       }),
       // Checked out today
@@ -485,6 +504,37 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         stayWhere.actualCheckIn = { gte: dStart, lte: dEnd };
       }
 
+      if (checkOutDate) {
+        const cStart = new Date(checkOutDate);
+        cStart.setHours(0, 0, 0, 0);
+        const cEnd = new Date(checkOutDate);
+        cEnd.setHours(23, 59, 59, 999);
+        stayWhere.AND = [
+          ...(stayWhere.AND || []),
+          {
+            OR: [
+              {
+                allocationItem: {
+                  exitDate: { gte: cStart, lte: cEnd },
+                },
+              },
+              {
+                allocationItemId: null,
+                registration: {
+                  allocations: {
+                    some: {
+                      isArchived: false,
+                      status: { not: AllocationStatus.CANCELLED },
+                      exitDate: { gte: cStart, lte: cEnd },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ];
+      }
+
       if (q) {
         stayWhere.OR = [
           { participant: { fullName: { contains: q, mode: 'insensitive' } } },
@@ -505,7 +555,19 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
           orderBy: { actualCheckIn: 'desc' },
           include: {
             participant: true,
-            registration: true,
+            registration: {
+              include: {
+                allocations: {
+                  where: { isArchived: false, status: { not: AllocationStatus.CANCELLED } },
+                  orderBy: { exitDate: 'desc' },
+                  take: 1,
+                  select: { exitDate: true },
+                },
+              },
+            },
+            allocationItem: {
+              select: { id: true, exitDate: true },
+            },
             unit: {
               include: {
                 room: {
@@ -574,7 +636,19 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
           orderBy: { actualCheckOut: 'desc' },
           include: {
             participant: true,
-            registration: true,
+            registration: {
+              include: {
+                allocations: {
+                  where: { isArchived: false, status: { not: AllocationStatus.CANCELLED } },
+                  orderBy: { exitDate: 'desc' },
+                  take: 1,
+                  select: { exitDate: true },
+                },
+              },
+            },
+            allocationItem: {
+              select: { id: true, exitDate: true },
+            },
             unit: {
               include: {
                 room: {
@@ -623,6 +697,14 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         } else if (arrivalStatus === 'EXPECTED') {
           allocWhere.registration = { status: { notIn: [RegistrationStatus.CHECKED_IN, RegistrationStatus.CHECKED_OUT, RegistrationStatus.CANCELLED] } };
         }
+      }
+
+      if (checkOutDate) {
+        const cStart = new Date(checkOutDate);
+        cStart.setHours(0, 0, 0, 0);
+        const cEnd = new Date(checkOutDate);
+        cEnd.setHours(23, 59, 59, 999);
+        allocWhere.exitDate = { gte: cStart, lte: cEnd };
       }
 
       if (registrationId) {

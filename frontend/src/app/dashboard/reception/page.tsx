@@ -2963,6 +2963,15 @@ export default function ReceptionPage() {
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-out Date:</span>
+                  <input
+                    type="date"
+                    value={filterCheckOutDate}
+                    onChange={(e) => { setFilterCheckOutDate(e.target.value); setQueuePage(1); }}
+                    className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-bold text-slate-500 uppercase">Status:</span>
                   <select
                     value={filterArrivalStatus}
@@ -2989,6 +2998,41 @@ export default function ReceptionPage() {
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-out Date:</span>
+                  <input
+                    type="date"
+                    value={filterCheckOutDate}
+                    onChange={(e) => { setFilterCheckOutDate(e.target.value); setQueuePage(1); }}
+                    className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setFilterCheckOutDate(new Date().toISOString().slice(0, 10)); setQueuePage(1); }}
+                    className="px-2 py-1 text-[10px] font-bold rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition"
+                    title="Filter guests checking out today"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      setFilterCheckOutDate(d.toISOString().slice(0, 10));
+                      setQueuePage(1);
+                    }}
+                    className="px-2 py-1 text-[10px] font-bold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition"
+                    title="Filter guests checking out tomorrow"
+                  >
+                    Tomorrow
+                  </button>
+                  {filterCheckOutDate && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                      {queueTotalCount} checking out
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-bold text-slate-500 uppercase">Status:</span>
                   <select
                     value={filterCheckInStatus}
@@ -3011,6 +3055,15 @@ export default function ReceptionPage() {
                     type="date"
                     value={filterArrivalDate}
                     onChange={(e) => { setFilterArrivalDate(e.target.value); setQueuePage(1); }}
+                    className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Check-out Date:</span>
+                  <input
+                    type="date"
+                    value={filterCheckOutDate}
+                    onChange={(e) => { setFilterCheckOutDate(e.target.value); setQueuePage(1); }}
                     className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
                   />
                 </div>
@@ -3310,9 +3363,13 @@ export default function ReceptionPage() {
                         {isStay ? (
                           <div>
                             <p className="font-semibold text-slate-800">In: {new Date(item.actualCheckIn).toLocaleDateString()}</p>
-                            {item.actualCheckOut && (
+                            {item.actualCheckOut ? (
                               <p className="text-[10px] text-slate-400">Out: {new Date(item.actualCheckOut).toLocaleDateString()}</p>
-                            )}
+                            ) : (item.allocationItem?.exitDate || item.registration?.allocations?.[0]?.exitDate) ? (
+                              <p className="text-[11px] font-semibold text-amber-700">
+                                Est. Out: {new Date(item.allocationItem?.exitDate || item.registration?.allocations?.[0]?.exitDate).toLocaleDateString()}
+                              </p>
+                            ) : null}
                           </div>
                         ) : (
                           <div>
