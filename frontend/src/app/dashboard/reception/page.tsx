@@ -3092,6 +3092,19 @@ export default function ReceptionPage() {
                     onChange={(e) => { setFilterCheckOutDate(e.target.value); setQueuePage(1); }}
                     className="px-2 py-1 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-blue-600"
                   />
+                  <button
+                    type="button"
+                    onClick={() => { setFilterCheckOutDate(new Date().toLocaleDateString('en-CA')); setQueuePage(1); }}
+                    className="px-2 py-1 text-[10px] font-bold rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition"
+                    title="Filter guests checked out today"
+                  >
+                    Today
+                  </button>
+                  {filterCheckOutDate && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                      {queueTotalCount} checked out
+                    </span>
+                  )}
                 </div>
               </>
             )}
@@ -3125,6 +3138,39 @@ export default function ReceptionPage() {
             )}
           </div>
         </div>
+
+        {/* Selected Check-out Date Total Counter Banner */}
+        {filterCheckOutDate && (
+          <div className="mx-4 mt-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
+              <LogOut className="w-4 h-4 text-amber-700" />
+              <span>
+                {activeTab === 'CHECKED_OUT'
+                  ? 'Total Completed Check-outs'
+                  : activeTab === 'CHECKED_IN'
+                  ? 'Total Members Checking Out'
+                  : 'Bookings Checking Out'}{' '}
+                on{' '}
+                {new Date(`${filterCheckOutDate}T00:00:00`).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+                :
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-600 text-white text-xs font-black">
+                {queueTotalCount} {activeTab === 'CHECKED_IN' || activeTab === 'CHECKED_OUT' ? (queueTotalCount === 1 ? 'member' : 'members') : (queueTotalCount === 1 ? 'booking' : 'bookings')}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setFilterCheckOutDate(''); setQueuePage(1); }}
+              className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline"
+            >
+              Clear Date
+            </button>
+          </div>
+        )}
 
         {/* Floating Bulk Action Bar for Group Check-Out (When Guests are Selected) */}
         {activeTab === 'CHECKED_IN' && selectedStayingStayIds.length > 0 && (
