@@ -505,10 +505,8 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
       }
 
       if (checkOutDate) {
-        const cStart = new Date(checkOutDate);
-        cStart.setHours(0, 0, 0, 0);
-        const cEnd = new Date(checkOutDate);
-        cEnd.setHours(23, 59, 59, 999);
+        const cStart = new Date(`${checkOutDate}T00:00:00.000+05:30`);
+        const cEnd = new Date(`${checkOutDate}T23:59:59.999+05:30`);
         stayWhere.AND = [
           ...(stayWhere.AND || []),
           {
@@ -590,10 +588,8 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
       }
 
       if (checkOutDate) {
-        const dStart = new Date(checkOutDate);
-        dStart.setHours(0, 0, 0, 0);
-        const dEnd = new Date(checkOutDate);
-        dEnd.setHours(23, 59, 59, 999);
+        const dStart = new Date(`${checkOutDate}T00:00:00.000+05:30`);
+        const dEnd = new Date(`${checkOutDate}T23:59:59.999+05:30`);
         stayWhere.actualCheckOut = { gte: dStart, lte: dEnd };
       }
 
@@ -700,10 +696,8 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
       }
 
       if (checkOutDate) {
-        const cStart = new Date(checkOutDate);
-        cStart.setHours(0, 0, 0, 0);
-        const cEnd = new Date(checkOutDate);
-        cEnd.setHours(23, 59, 59, 999);
+        const cStart = new Date(`${checkOutDate}T00:00:00.000+05:30`);
+        const cEnd = new Date(`${checkOutDate}T23:59:59.999+05:30`);
         allocWhere.exitDate = { gte: cStart, lte: cEnd };
       }
 

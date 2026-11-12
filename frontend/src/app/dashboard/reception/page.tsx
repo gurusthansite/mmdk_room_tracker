@@ -3007,7 +3007,7 @@ export default function ReceptionPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => { setFilterCheckOutDate(new Date().toISOString().slice(0, 10)); setQueuePage(1); }}
+                    onClick={() => { setFilterCheckOutDate(new Date().toLocaleDateString('en-CA')); setQueuePage(1); }}
                     className="px-2 py-1 text-[10px] font-bold rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition"
                     title="Filter guests checking out today"
                   >
@@ -3018,7 +3018,7 @@ export default function ReceptionPage() {
                     onClick={() => {
                       const d = new Date();
                       d.setDate(d.getDate() + 1);
-                      setFilterCheckOutDate(d.toISOString().slice(0, 10));
+                      setFilterCheckOutDate(d.toLocaleDateString('en-CA'));
                       setQueuePage(1);
                     }}
                     className="px-2 py-1 text-[10px] font-bold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition"
