@@ -571,11 +571,12 @@ export async function createBulkRooms(req: Request, res: Response) {
       for (const tok of tokens) {
         const trimmed = tok.trim();
         if (!trimmed) continue;
-        const key = trimmed.toLowerCase();
+        const normalizedBuilding = (g.building || '').trim().toLowerCase();
+        const key = `${trimmed.toLowerCase()}::${normalizedBuilding}`;
         if (seenInRequest.has(key)) {
           return res.status(400).json({
             success: false,
-            message: `Duplicate room number '${trimmed}' specified in request.`,
+            message: `Duplicate room number '${trimmed}' specified in request for the same building.`,
           });
         }
         seenInRequest.add(key);
@@ -602,20 +603,29 @@ export async function createBulkRooms(req: Request, res: Response) {
       });
     }
 
-    // Check database for existing rooms within the target hotel property
+    // Check database for existing rooms within the target hotel property & building
     const existingRooms = await prisma.room.findMany({
       where: {
         roomNumber: { in: allRoomNumbers },
         hotelId: hotelId || null,
       },
-      select: { roomNumber: true },
+      select: { roomNumber: true, building: true },
     });
 
-    if (existingRooms.length > 0) {
-      const dupes = existingRooms.map((r) => r.roomNumber).join(', ');
+    const dupes = itemsToCreate
+      .filter((item) =>
+        existingRooms.some(
+          (ex) =>
+            ex.roomNumber.toLowerCase() === item.roomNumber.toLowerCase() &&
+            ((ex.building || '').trim().toLowerCase() === (item.building || '').trim().toLowerCase() || !item.building || !ex.building)
+        )
+      )
+      .map((item) => item.roomNumber);
+
+    if (dupes.length > 0) {
       return res.status(409).json({
         success: false,
-        message: `The following room number(s) already exist in this property: ${dupes}. Please remove or change them.`,
+        message: `The following room number(s) already exist in this property: ${dupes.join(', ')}. Please remove or change them.`,
       });
     }
 
@@ -718,6 +728,12 @@ export async function createBulkRooms(req: Request, res: Response) {
     });
   } catch (err: any) {
     console.error('Error in createBulkRooms:', err);
+    if (err?.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        message: 'One or more room numbers already exist in this property or conflict with an existing room.',
+      });
+    }
     return res.status(500).json({
       success: false,
       message: err.message || 'Failed to create bulk rooms',

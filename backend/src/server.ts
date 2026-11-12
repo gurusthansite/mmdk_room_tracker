@@ -9,6 +9,14 @@ async function bootstrap() {
     const sanitizedDbUrl = config.databaseUrl.replace(/:([^:@]+)@/, ':****@');
     console.log(`[Database] PostgreSQL successfully connected on ${sanitizedDbUrl}`);
 
+    // Ensure legacy global unique constraint on roomNumber is dropped so multiple hotels can share room numbers
+    try {
+      await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "rooms_roomNumber_key";`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "rooms_hotelId_roomNumber_idx" ON "rooms"("hotelId", "roomNumber");`);
+    } catch (idxErr: any) {
+      console.warn('[Maintenance] Room index sync warning:', idxErr.message);
+    }
+
     // One-time cleanup of test data across environments (executed once, recorded in system_checks)
     try {
       const cleanupRecord = await prisma.systemCheck.findFirst({
