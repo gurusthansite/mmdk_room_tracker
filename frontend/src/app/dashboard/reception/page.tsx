@@ -145,6 +145,14 @@ export default function ReceptionPage() {
     checkedOutTodayCount: 0,
   });
   const [records, setRecords] = useState<any[]>([]);
+  const [freeingRoomsSummary, setFreeingRoomsSummary] = useState<
+    Array<{
+      roomNumber: string;
+      hotelName: string;
+      genderPreference: string;
+      units: Array<{ unitNumber: string; type: string }>;
+    }>
+  >([]);
   const [queuePage, setQueuePage] = useState<number>(1);
   const [queueTotalPages, setQueueTotalPages] = useState<number>(1);
   const [queueTotalCount, setQueueTotalCount] = useState<number>(0);
@@ -706,6 +714,7 @@ export default function ReceptionPage() {
       if (res.success && res.data) {
         setMetrics(res.data.metrics);
         setRecords(res.data.records);
+        setFreeingRoomsSummary(res.data.freeingRoomsSummary || []);
         setQueuePage(res.data.pagination.page);
         setQueueTotalPages(res.data.pagination.totalPages);
         setQueueTotalCount(res.data.pagination.total);
@@ -3141,34 +3150,76 @@ export default function ReceptionPage() {
 
         {/* Selected Check-out Date Total Counter Banner */}
         {filterCheckOutDate && (
-          <div className="mx-4 mt-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
-              <LogOut className="w-4 h-4 text-amber-700" />
-              <span>
-                {activeTab === 'CHECKED_OUT'
-                  ? 'Total Completed Check-outs'
-                  : activeTab === 'CHECKED_IN'
-                  ? 'Total Members Checking Out'
-                  : 'Bookings Checking Out'}{' '}
-                on{' '}
-                {new Date(`${filterCheckOutDate}T00:00:00`).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-                :
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-amber-600 text-white text-xs font-black">
-                {queueTotalCount} {activeTab === 'CHECKED_IN' || activeTab === 'CHECKED_OUT' ? (queueTotalCount === 1 ? 'member' : 'members') : (queueTotalCount === 1 ? 'booking' : 'bookings')}
-              </span>
+          <div className="mx-4 mt-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
+                <LogOut className="w-4 h-4 text-amber-700" />
+                <span>
+                  {activeTab === 'CHECKED_OUT'
+                    ? 'Total Completed Check-outs'
+                    : activeTab === 'CHECKED_IN'
+                    ? 'Total Members Checking Out'
+                    : 'Bookings Checking Out'}{' '}
+                  on{' '}
+                  {new Date(`${filterCheckOutDate}T00:00:00`).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                  :
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-600 text-white text-xs font-black">
+                  {queueTotalCount} {activeTab === 'CHECKED_IN' || activeTab === 'CHECKED_OUT' ? (queueTotalCount === 1 ? 'member' : 'members') : (queueTotalCount === 1 ? 'booking' : 'bookings')}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setFilterCheckOutDate(''); setQueuePage(1); }}
+                className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline"
+              >
+                Clear Date
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => { setFilterCheckOutDate(''); setQueuePage(1); }}
-              className="text-[11px] font-bold text-amber-800 hover:text-amber-950 underline"
-            >
-              Clear Date
-            </button>
+
+            {activeTab === 'CHECKED_IN' && freeingRoomsSummary.length > 0 && (
+              <div className="pt-2 border-t border-amber-200/70">
+                <p className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wide mb-1.5">
+                  Rooms &amp; Beds/Mats Freeing Up ({freeingRoomsSummary.reduce((sum, r) => sum + r.units.length, 0)} units across {freeingRoomsSummary.length} {freeingRoomsSummary.length === 1 ? 'room' : 'rooms'}) — click a room to filter:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {freeingRoomsSummary.map((r, idx) => {
+                    const isSelectedRoom = filterRoomNumber === r.roomNumber;
+                    const badgeColor = isSelectedRoom
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : r.genderPreference === 'FEMALE'
+                      ? 'bg-rose-50 text-rose-900 border-rose-200 hover:bg-rose-100'
+                      : r.genderPreference === 'MALE'
+                      ? 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100'
+                      : 'bg-white text-slate-800 border-amber-300 hover:bg-amber-100';
+                    const unitLabels = r.units
+                      .map((u) => `${u.type === 'MAT' ? 'Mat' : 'Bed'} ${u.unitNumber}`)
+                      .join(', ');
+                    return (
+                      <button
+                        key={`${r.hotelName}-${r.roomNumber}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setFilterRoomNumber(isSelectedRoom ? '' : r.roomNumber);
+                          setQueuePage(1);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition flex items-center gap-1.5 ${badgeColor}`}
+                        title={`Click to filter by Room ${r.roomNumber}`}
+                      >
+                        <span className="font-mono">Room {r.roomNumber}</span>
+                        <span className="text-[10px] opacity-75">({r.hotelName})</span>
+                        <span className="opacity-50">&bull;</span>
+                        <span className="font-semibold">{unitLabels}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -454,6 +454,12 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
 
     let records: any[] = [];
     let totalCount = 0;
+    let freeingRoomsSummary: Array<{
+      roomNumber: string;
+      hotelName: string;
+      genderPreference: string;
+      units: Array<{ unitNumber: string; type: string }>;
+    }> = [];
 
     const roomFilter: any = {};
     if (hotelId) roomFilter.hotelId = hotelId;
@@ -544,7 +550,7 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
         ];
       }
 
-      [totalCount, records] = await Promise.all([
+      const [countRes, staysRes, freeingStaysRes] = await Promise.all([
         prisma.stayRecord.count({ where: stayWhere }),
         prisma.stayRecord.findMany({
           where: stayWhere,
@@ -578,7 +584,65 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
             },
           },
         }),
+        checkOutDate
+          ? prisma.stayRecord.findMany({
+              where: stayWhere,
+              select: {
+                unit: {
+                  select: {
+                    unitNumber: true,
+                    type: true,
+                    room: {
+                      select: {
+                        roomNumber: true,
+                        genderPreference: true,
+                        hotel: { select: { name: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          : Promise.resolve([]),
       ]);
+      totalCount = countRes;
+      records = staysRes;
+
+      if (checkOutDate && freeingStaysRes.length > 0) {
+        const roomMap = new Map<
+          string,
+          {
+            roomNumber: string;
+            hotelName: string;
+            genderPreference: string;
+            units: Array<{ unitNumber: string; type: string }>;
+          }
+        >();
+        for (const s of freeingStaysRes) {
+          const roomNum = s.unit?.room?.roomNumber || 'Unknown';
+          const hotelName = s.unit?.room?.hotel?.name || 'Main Wing';
+          const genderPref = s.unit?.room?.genderPreference || 'GUEST';
+          const key = `${hotelName}::${roomNum}`;
+          if (!roomMap.has(key)) {
+            roomMap.set(key, {
+              roomNumber: roomNum,
+              hotelName,
+              genderPreference: genderPref,
+              units: [],
+            });
+          }
+          roomMap.get(key)!.units.push({
+            unitNumber: s.unit?.unitNumber || '',
+            type: s.unit?.type || 'BED',
+          });
+        }
+        freeingRoomsSummary = Array.from(roomMap.values())
+          .map((r) => ({
+            ...r,
+            units: r.units.sort((a, b) => a.unitNumber.localeCompare(b.unitNumber, undefined, { numeric: true })),
+          }))
+          .sort((a, b) => a.hotelName.localeCompare(b.hotelName) || a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }));
+      }
     } else if (tab === 'CHECKED_OUT') {
       // Checked out queue
       const stayWhere: any = { status: StayStatus.CHECKED_OUT };
@@ -842,6 +906,7 @@ export async function getReceptionOverview(req: Request, res: Response): Promise
           })),
         },
         tab,
+        freeingRoomsSummary,
         records,
         pagination: {
           page,

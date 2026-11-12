@@ -1126,7 +1126,20 @@ class ApiClient {
     allocationStatus?: string;
     page?: number;
     limit?: number;
-  } = {}): Promise<ApiResponse<{ metrics: ReceptionMetrics; tab: string; records: any[]; pagination: any }>> {
+  } = {}): Promise<
+    ApiResponse<{
+      metrics: ReceptionMetrics;
+      tab: string;
+      freeingRoomsSummary?: Array<{
+        roomNumber: string;
+        hotelName: string;
+        genderPreference: string;
+        units: Array<{ unitNumber: string; type: string }>;
+      }>;
+      records: any[];
+      pagination: any;
+    }>
+  > {
     const query = new URLSearchParams();
     if (params.tab) query.set('tab', params.tab);
     if (params.q) query.set('q', params.q);
